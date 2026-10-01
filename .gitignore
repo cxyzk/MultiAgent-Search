@@ -1,0 +1,25 @@
+# ===== Python 后端 =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.local
+*.egg-info/
+.pytest_cache/
+
+# ===== Node 前端 =====
+node_modules/
+frontend/dist/
+*.log
+npm-debug.log*
+*.tsbuildinfo
+
+# ===== IDE =====
+.idea/
+.vscode/
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+Desktop.ini
