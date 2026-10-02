@@ -3,8 +3,6 @@ import httpx
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
-# app/tools/weather.py
-
 WEATHER_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -24,7 +22,7 @@ WEATHER_TOOL_SCHEMA = {
 }
 
 #这个工具是通过这个城市的经纬度来获取天气的
-async def get_weather(city:str)->str:
+async def get_weather(city:str)->dict:
     """获取指定城市的当前天气"""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
