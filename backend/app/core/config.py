@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     llm_base_url: str
     llm_api_key: str
     llm_model:str
+    tavily_api_key: str = ""
+
+    @property
+    def enable_web_search(self) -> bool:
+        return bool(self.tavily_api_key)
 
 
 @lru_cache
