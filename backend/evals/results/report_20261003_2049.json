@@ -1,0 +1,48 @@
+[
+  {
+    "case_id": "vague_search_001",
+    "question": "帮我搜索一下最近的热门消息",
+    "passed": true,
+    "latency_s": 11.1,
+    "dispatched": [
+      "search_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "## 最近热门消息汇总\n\n我针对\"最近一周国内外热门新闻\"做了一次联网搜索，结果主要来自中央社、公视新闻、世界新闻网等媒体。需要**先说明一个前提**：本次检索命中的多为新闻专题聚合页，多数条目未标注明确发布日期，且部分条目时间标注为 2026 年，与\"最近一周\"的时间限定不一致，因此**时效性无法"
+  },
+  {
+    "case_id": "chitchat_001",
+    "question": "你好，你是什么模型",
+    "passed": true,
+    "latency_s": 2.1,
+    "dispatched": [],
+    "tool_calls": 0,
+    "failures": [],
+    "answer_preview": "你好！👋\n\n我是这个任务编排系统里的**主智能体（编排智能体）**，职责是理解你的需求、判断是否需要调用子智能体（联网搜索、天气查询）来补充信息，然后汇总成最终回答。\n\n关于\"我具体是哪个大模型\"这个问题，我需要坦诚说明：**我无法准确确认自己的底层模型名称或版本号**。这类信息通常由部署方设定，而"
+  },
+  {
+    "case_id": "compare_weather_001",
+    "question": "对比北京和上海今天的天气",
+    "passed": true,
+    "latency_s": 14.2,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "# 北京 vs 上海 今日天气对比\n\n| 项目 | 北京 | 上海 |\n|------|------|------|\n| 天气状况 | 晴 ☀️ | 毛毛雨/浓雾类天气（天气代码 55）🌫️ |\n| 气温 | 17.6°C | 19.4°C |\n| 湿度 | 29%（干燥） | 94%（非常潮湿） "
+  },
+  {
+    "case_id": "multi_hop_001",
+    "question": "今天北京适合穿什么衣服出门",
+    "passed": true,
+    "latency_s": 9.5,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "## 北京今日穿衣建议\n\n**当前天气实况**（来自天气子智能体）：\n\n| 项目 | 数值 |\n|---|---|\n| 温度 | 17.6°C |\n| 天气 | 晴 |\n| 风力 | 20.5 km/h（约 3～4 级，偏凉） |\n| 湿度 | 29%（偏干燥） |\n\n### 推荐穿法\n- **上衣"
+  }
+]

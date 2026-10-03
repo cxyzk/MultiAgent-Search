@@ -1,0 +1,30 @@
+- id: vague_search_001
+  question: "帮我搜索一下最近的热门消息"
+  expect:
+    subagents: ["search_agent"]       # 应该派谁
+    max_tool_calls: 2                 # 调度预算（你调优后应该是 1，留点余量）
+    must_contain: ["来源", "http"]    # 回答里该出现的东西
+    max_latency_s: 30
+
+- id: chitchat_001
+  question: "你好，你是什么模型"
+  expect:
+    subagents: []                     # 寒暄不该惊动任何子智能体！
+    max_tool_calls: 0
+    max_latency_s: 20                 # 纯对话只有一次 LLM 调用，应该很快
+
+- id: compare_weather_001
+  question: "对比北京和上海今天的天气"
+  expect:
+    subagents: ["weather_agent"]
+    max_tool_calls: 2
+    must_contain: ["北京", "上海"]
+    max_latency_s: 60
+
+- id: multi_hop_001
+  question: "今天北京适合穿什么衣服出门"
+  expect:
+    subagents: ["weather_agent"]
+    max_tool_calls: 2                 # 查天气 + 可能的内部调用
+    must_contain: ["温度", "建议"]
+    max_latency_s: 60

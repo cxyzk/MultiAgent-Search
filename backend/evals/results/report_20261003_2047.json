@@ -1,0 +1,50 @@
+[
+  {
+    "case_id": "vague_search_001",
+    "question": "帮我搜索一下最近的热门消息",
+    "passed": false,
+    "latency_s": 9.8,
+    "dispatched": [
+      "search_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [
+      "回答缺少关键词：['http']"
+    ],
+    "answer_preview": "## 关于\"最近的热门消息\"\n\n我尝试联网搜索了今日热点，但需要如实说明：**本次搜索未能获取到带明确发布日期的当日头条清单**，返回的多是新闻聚合页面，时效性无法确认。以下是可辨识到的内容，仅供模糊参考：\n\n**可辨识到的内容**\n- 一个标注为「2025年8月2日新闻简报十条」的聚合页，但页面本"
+  },
+  {
+    "case_id": "chitchat_001",
+    "question": "你好，你是什么模型",
+    "passed": true,
+    "latency_s": 1.4,
+    "dispatched": [],
+    "tool_calls": 0,
+    "failures": [],
+    "answer_preview": "你好！我是任务编排主智能体，负责理解你的请求，并调度子智能体来完成任务。\n\n关于我具体基于哪个底层大模型——这个信息我这边并没有明确给出，所以我没法准确地告诉你具体的模型名称和版本，也不想凭空编造。如果你确实需要这个信息，建议查阅你所使用的产品/平台的官方说明文档。\n\n我能做的是这些：\n- **联网"
+  },
+  {
+    "case_id": "compare_weather_001",
+    "question": "对比北京和上海今天的天气",
+    "passed": true,
+    "latency_s": 17.2,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "## 北京 vs 上海 今日天气对比\n\n| 项目 | 北京 | 上海 |\n|---|---|---|\n| 天气 | 晴 | 毛毛雨（有雾感） |\n| 气温 | 17.6 °C | 19.4 °C |\n| 湿度 | 29% | 94% |\n| 风速 | 20.5 km/h | 8.0 km/h |\n\n"
+  },
+  {
+    "case_id": "multi_hop_001",
+    "question": "今天北京适合穿什么衣服出门",
+    "passed": true,
+    "latency_s": 8.7,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "## 北京今日穿衣建议\n\n**今日天气实况**（来源：天气查询子智能体）\n\n| 项目 | 数据 |\n|---|---|\n| 气温 | 17.6°C |\n| 天气 | 晴 |\n| 风速 | 20.5 km/h（约 4 级风） |\n| 湿度 | 29%（偏干） |\n\n### 推荐穿法：薄外套 + 长袖内"
+  }
+]
