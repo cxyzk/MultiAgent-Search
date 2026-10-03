@@ -62,6 +62,6 @@ async def get_weather(city:str)->dict:
                 "weather_code": current["weather_code"],
             }
 
-    except httpx.RequestException as e:
+    except httpx.RequestError as e:
         return {"city": city, "error": f"请求天气服务失败：{e}"}
 

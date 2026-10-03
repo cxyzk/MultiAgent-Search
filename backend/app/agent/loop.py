@@ -20,10 +20,14 @@ ProgressCallback = Callable[[dict], Awaitable[None]]
 async def execute_tool(tool_call, tool_map: dict) -> str:
     """执行单个工具调用，返回回填给模型的结果字符串。以后超时/重试也加在这里"""
     func_name = tool_call.function.name
-    args = json.loads(tool_call.function.arguments)
-    func = tool_map.get(func_name)
-    #这里的**把这个字典拆成关键字参数传给函数了 类似于func(city="上海")
-    result = await func(**args) if func else {"error": f"未知工具：{func_name}"}
+    try:
+        args = json.loads(tool_call.function.arguments)
+        func = tool_map.get(func_name)
+        #这里的**把这个字典拆成关键字参数传给函数了 类似于func(city="上海")
+        result = await func(**args) if func else {"error": f"未知工具：{func_name}"}
+    except Exception as e:
+        # 工具崩了要把错误回填给模型让它自己决定下一步，而不是炸掉整个请求
+        result = {"error": f"工具 {func_name} 执行失败：{type(e).__name__}: {e}"}
     return json.dumps(result, ensure_ascii=False)
 
 
