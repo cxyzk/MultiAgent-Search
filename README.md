@@ -7,8 +7,11 @@
 ## 功能
 
 - **多智能体调度**：主智能体分析请求，决定调度哪个子智能体（可并发多个），汇总结果作答
-  - `search_agent`：联网搜索（Tavily API）
+  - `search_agent`：联网搜索（Tavily API，时事查询走新闻索引并按天数过滤）
   - `weather_agent`：天气查询（Open-Meteo API，无需 key）
+- **多轮对话**：API 层维护会话历史（内存版 SessionStore，只存一问一答），主智能体带上下文理解追问（"那上海呢？"），子智能体保持无状态、拿到的 query 永远自包含
+- **时效性搜索**：两个智能体的 prompt 注入当天日期；时事类查询走 Tavily 新闻索引（`topic=news` + `days` 过滤），结果携带 `published_date`
+- **评测集**：断言调度行为与回答质量，支持单轮/多轮用例，报告存档供版本间 diff
 - **实时过程可视化**：调度决策、工具执行、最终回答通过 WebSocket 逐条推送，前端日志式呈现
 - **统一循环引擎**：所有智能体复用同一个 tool-calling 循环（`run_tool_loop`），新增子智能体只需一份三元组配置
 - **聊天式前端**：Vue3 + TypeScript，Markdown 渲染 + 代码语法高亮
@@ -24,6 +27,7 @@ graph TB
     MA -->|调度| WA[weather_agent]
     SA -->|tavily_search| TV[Tavily API]
     WA -->|get_weather| OM[Open-Meteo API]
+    API <-->|会话历史读写| SS[(SessionStore)]
     API -->|progress / tool_result / result 事件| FE
 ```
 
@@ -31,10 +35,11 @@ graph TB
 
 ```
 用户提问 → POST /api/task（立即返回 task_id）
+        → API 层从 SessionStore 取该会话历史，拼进主智能体的 messages
         → 后台执行 main_agent 循环
         → 主智能体 function calling 调度子智能体
         → 子智能体独立上下文中执行工具、消化结果，只返回摘要
-        → 主智能体汇总，WS 推送 result
+        → 主智能体汇总，WS 推送 result；成功后把一问一答写回 SessionStore
 前端全程通过 WS 接收 progress / tool_result / result / error 事件
 ```
 
@@ -49,6 +54,33 @@ graph TB
 | 同轮多个工具调用串行执行 | 循环内逐个 `await` | 同轮无依赖的调用改为 `asyncio.gather` 并发 | 并行收益 |
 
 **结果：单次查询端到端延迟 ~2 分钟 → ~2 秒（约 98% 降低）**，且未改动任何核心逻辑——全部收益来自调度策略（prompt 约束）与并发化。
+
+## 评测集
+
+prompt 和调度策略的每次改动都用同一套用例量化，避免"感觉上变好了"。
+
+```bash
+cd backend
+python -m evals.runner                       # 全量
+python -m evals.runner multi_turn_coref_001  # 只跑指定用例（调 prompt 时用）
+```
+
+用例写在 `evals/cases.yml`：单轮用例是一问 + expect；多轮用例用 `turns` 数组，历史逐轮累积喂给主智能体（和线上 SessionStore 同构）。expect 支持的断言：
+
+| 字段 | 含义 |
+|---|---|
+| `subagents` | 本轮应该调度哪些子智能体（精确匹配） |
+| `max_tool_calls` | 本轮工具调用次数上限（调度预算） |
+| `must_contain` | 回答必须包含的关键词（全部命中） |
+| `any_contain` | 回答命中任一即可的关键词 |
+| `max_latency_s` | 本轮耗时上限 |
+
+每轮报告存档在 `evals/results/report_*.json`，供不同版本之间 diff 对比。
+
+### 两条实战教训
+
+- **结构全过 ≠ 内容正确**：`tavily_search` 曾因 key 里一个多余空格（`"content "`）把所有正文取成空串，4 个用例照样 4/4 通过——调度、预算、延迟全对，回答却是一封道歉信。结构性断言之外，必须保留 `answer_preview` 人肉复核这一层。
+- **对自由生成文本逐字断言必然 flaky**：模型这轮写"温度"、下轮写"气温"，逐字断言今天过明天就挂。断言要锚定稳定产物——实体名、数值单位、来源 URL；措辞类关键词用 `any_contain` 兜底。
 
 ## 快速开始
 
@@ -75,14 +107,15 @@ npm run dev                                       # 页面起在 :5173，/api �
 
 ## 技术栈
 
-- **后端**：Python / FastAPI / WebSocket / OpenAI 兼容 SDK（异步） / httpx
+- **后端**：Python / FastAPI / WebSocket / OpenAI 兼容 SDK（异步） / httpx / PyYAML（评测用例）
 - **前端**：Vue3（script setup）/ TypeScript / Vite / axios / marked + highlight.js + DOMPurify
 - **无 agent 框架依赖**：tool-calling 循环、多智能体编排、上下文隔离均为手写实现
 
 ## Roadmap
 
+- [x] 评测集：固化测试用例，量化 prompt 与调度策略改动的影响
+- [x] 多轮对话：内存版会话历史，主智能体带上下文做指代消解
 - [ ] 流式输出（token 级打字机效果）
-- [ ] 评测集：固化测试用例，量化 prompt 与调度策略改动的影响
+- [ ] 会话历史落盘（SQLite）+ 刷新后回放（`GET /api/history`）
 - [ ] 代码执行子智能体（Docker 沙箱）
-- [ ] 对话历史持久化
 - [ ] RAG / NL2SQL 子智能体
