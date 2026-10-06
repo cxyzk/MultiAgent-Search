@@ -32,11 +32,15 @@ async def create_task(req: TaskRequest):
         #这里的payload通过解包再加入这个task_id
         await push(req.session_id, {**payload, "task_id": task_id})
 
+    async def on_token(delta: str) -> None:
+        # 直播：文本增量立刻推送，不等汇总
+        await push(req.session_id, {"type": "token", "task_id": task_id, "delta": delta})
+
     async def job() -> None:
         try:
             history = store.get_history(req.session_id)
             #这里采用这个回调传入 避免这个循环依赖
-            result = await run_main_agent(req.query, on_progress=on_progress,history=history)
+            result = await run_main_agent(req.query, on_progress=on_progress,history=history,on_token=on_token)
             store.append(req.session_id, "user", req.query)
             store.append(req.session_id, "assistant", result)
             await push(req.session_id, {"type": "result", "task_id": task_id, "content": result})

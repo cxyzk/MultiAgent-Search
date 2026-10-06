@@ -1,7 +1,8 @@
 from openai import AsyncOpenAI
 from app.core.config import settings
 import json
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable
+from types import SimpleNamespace
 
 MAX_ROUNDS = 8
 
@@ -15,6 +16,7 @@ client = AsyncOpenAI(
 
 #运行注解
 ProgressCallback = Callable[[dict], Awaitable[None]]
+TokenCallback = Callable[[str], Awaitable[None]]   # 每收到一小段文本调一次
 
 
 async def execute_tool(tool_call, tool_map: dict) -> str:
@@ -31,6 +33,64 @@ async def execute_tool(tool_call, tool_map: dict) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+
+async def _call_model(messages, tools, on_token):
+    """调一次 LLM，返回 (content, tool_calls, 放回 messages 用的 assistant 消息)。
+
+    on_token 非空时走流式：content 增量实时转发给调用方，
+    tool_calls 的增量碎片按 index 分桶拼装。
+    """
+    if on_token is None:
+        resp=await client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,
+            **({"tools": tools, "tool_choice": "auto"} if tools else {}),
+        )
+        msg = resp.choices[0].message
+        return msg.content, msg.tool_calls, msg
+    content_parts: list[str] = []
+    #工具拼装
+    tc_buf: dict[int, dict] = {}  # index -> {"id", "name", "arguments"}
+
+    stream = await client.chat.completions.create(
+        model=settings.llm_model,
+        messages=messages,
+        **({"tools": tools, "tool_choice": "auto"} if tools else {}),
+        stream=True,
+    )
+    async for chunk in stream:
+        if not chunk.choices:
+            continue  # 某些服务商最后一个 chunk 的 choices 是空的
+        delta = chunk.choices[0].delta
+        if delta.content:
+            content_parts.append(delta.content)
+            await on_token(delta.content)  # ← 直播：收到就转发
+        for tc in delta.tool_calls or []:
+            slot = tc_buf.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+            if tc.id:
+                slot["id"] = tc.id
+            if tc.function and tc.function.name:
+                slot["name"] = tc.function.name
+            if tc.function and tc.function.arguments:
+                slot["arguments"] += tc.function.arguments  # 累加，不是覆盖！
+
+    content = "".join(content_parts)
+    tool_calls = [
+        SimpleNamespace(id=s["id"],
+                        function=SimpleNamespace(name=s["name"], arguments=s["arguments"]))
+        for s in tc_buf.values()
+    ]
+    # 放回 messages 的必须是纯 dict：SimpleNamespace 下次请求序列化会出问题
+    assistant_msg: dict = {"role": "assistant", "content": content}
+    if tool_calls:
+        assistant_msg["tool_calls"] = [
+            {"id": s["id"], "type": "function",
+             "function": {"name": s["name"], "arguments": s["arguments"]}}
+            for s in tc_buf.values()
+        ]
+    return content, tool_calls, assistant_msg
+
+
 async def run_tool_loop(
         system_prompt: str,
         tools: list[dict],
@@ -39,6 +99,7 @@ async def run_tool_loop(
         on_progress: ProgressCallback | None = None,
         agent_name: str = "agent",
         history: list[dict] | None = None,
+        on_token: TokenCallback | None = None,
 )->str:
     async def report(payload: dict) -> None:
         if on_progress:
@@ -49,29 +110,23 @@ async def run_tool_loop(
         + [{"role": "user", "content": query}]
     )
     for round_i in range(MAX_ROUNDS):
-        resp=await client.chat.completions.create(
-            model=settings.llm_model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",  # 让模型自己决定调不调
-        )
-        msg = resp.choices[0].message
-        messages.append(msg)  # 必须把 assistant 的 tool_calls 消息加进去
+        content, tool_calls, assistant_msg = await _call_model(messages, tools, on_token)
+        messages.append(assistant_msg)  # 必须把 assistant 的 tool_calls 消息加进去
 
         # 模型没调工具，直接返回文本
-        if not msg.tool_calls:
-            return msg.content
+        if not tool_calls:
+            return content
 
         #将工具调用结果通过ws传给前端
         await report({
                 "type":"progress",
                 "round": round_i + 1,
-                "tools": [c.function.name for c in msg.tool_calls],
-                "args": [c.function.arguments for c in msg.tool_calls]
+                "tools": [c.function.name for c in tool_calls],
+                "args": [c.function.arguments for c in tool_calls]
         })
 
         # 执行每个工具调用
-        for tool_call in msg.tool_calls:
+        for tool_call in tool_calls:
             # 调用工具 把结果添加到messages给大模型
             messages.append({
                 "role": "tool",
@@ -81,8 +136,8 @@ async def run_tool_loop(
             await report({"type": "tool_result", "tool": tool_call.function.name})
 
     # 超过最大轮数：不带 tools 再调一次，强制模型基于已有信息收尾
-    resp = await client.chat.completions.create(model=settings.llm_model, messages=messages)
-    return resp.choices[0].message.content
-
+    content, _, _ = await _call_model(messages, None, on_token)
+    return content
 if __name__ == "__main__":
     ...
+

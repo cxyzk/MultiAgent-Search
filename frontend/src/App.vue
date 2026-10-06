@@ -11,6 +11,13 @@
 
     <main ref="listEl" class="message-list">
       <ChatBubble v-for="m in messages" :key="m.id" :msg="m" />
+      <!-- ↓↓↓ 直播气泡，加在这里 ↓↓↓ -->
+      <div v-if="streamingText" class="streaming-row">
+        <div class="streaming-bubble">
+          {{ streamingText }}<span class="cursor">▍</span>
+        </div>
+      </div>
+      <!-- ↑↑↑ -->
       <p v-if="messages.length === 0" class="empty-hint">
         试试问：北京现在的天气如何？
       </p>
@@ -51,6 +58,7 @@ const input = ref('')
 const connected = ref(false)
 const running = ref(false)
 const listEl = ref<HTMLElement | null>(null)
+const streamingText = ref('')   // 直播中的文本，定稿到达即清空
 let ws: WebSocket | null = null
 let manualClose = false   // 标记"是我主动关的"，防止关闭页面后还触发重连
 
@@ -67,12 +75,17 @@ function handleEvent(msg: ServerEvent): void {
     case 'tool_result':
       push('step', `✅ ${msg.tool} 返回`)
       break
+    case 'token':
+      streamingText.value += msg.delta
+      break
     case 'result':
       push('assistant', msg.content)
+      streamingText.value = ''   // 定稿到达，直播气泡退场
       running.value = false
       break
     case 'error':
       push('error', msg.error)
+      streamingText.value = ''   // 别留残影
       running.value = false
       break
   }
@@ -116,7 +129,7 @@ watch(
   () => messages.value.length,
   async () => {
     await nextTick()
-    listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+    listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'auto' })
   },
 )
 
@@ -226,6 +239,33 @@ onUnmounted(() => {
 .send-btn:disabled {
   background: #bfdbfe;
   cursor: not-allowed;
+}
+
+/* 直播气泡：不能复用 ChatBubble 里的类，scoped 样式出了组件就失效 */
+.streaming-row {
+  display: flex;
+  justify-content: flex-start;
+}
+.streaming-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border-bottom-left-radius: 4px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;      /* 保留换行，直播裸文本 */
+  word-break: break-word;
+}
+.cursor {
+  display: inline-block;
+  color: #3b82f6;
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 </style>

@@ -13,3 +13,4 @@ export type ServerEvent =
   | { type: 'tool_result'; tool: string; task_id: string }
   | { type: 'result'; content: string; task_id: string }
   | { type: 'error'; error: string; task_id: string }
+  | { type: 'token'; delta: string; task_id: string }
