@@ -5,6 +5,8 @@ import uuid
 from app.agent.main_agent import run_main_agent
 import asyncio
 
+from app.core.session_store import store
+
 router = APIRouter()
 
 # session_id -> WebSocket，简化设计：一个会话一条连接
@@ -32,8 +34,11 @@ async def create_task(req: TaskRequest):
 
     async def job() -> None:
         try:
+            history = store.get_history(req.session_id)
             #这里采用这个回调传入 避免这个循环依赖
-            result = await run_main_agent(req.query, on_progress=on_progress)
+            result = await run_main_agent(req.query, on_progress=on_progress,history=history)
+            store.append(req.session_id, "user", req.query)
+            store.append(req.session_id, "assistant", result)
             await push(req.session_id, {"type": "result", "task_id": task_id, "content": result})
         except Exception as e:
             # 后台任务的异常没人接，必须自己兜住推给前端，否则前端永远干等

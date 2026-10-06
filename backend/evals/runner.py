@@ -32,53 +32,76 @@ def load_cases() -> list[dict]:
     with open(CASES_PATH, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
+
+def case_turns(case: dict) -> list[dict]:
+    """单问用例和 turns 多轮用例统一成同一结构"""
+    return case.get("turns") or [{"question": case["question"], "expect": case["expect"]}]
+
+
 async def run_one_case(case) -> CaseResult:
-    events:list[dict] = []
-    async def on_progress(payload: dict) -> None:
-        events.append(payload)  # 只记录，不推送——评测模式没有 WS
-    start = time.monotonic()
-    answer = await run_main_agent(case["question"], on_progress=on_progress)
-    latency = round(time.monotonic() - start, 1)
+    # 老的单问用例和新的 turns 多轮用例，统一成同一结构处理
+    turns = case_turns(case)
 
-    # ---- 从事件流审计实际行为 ----
-    dispatched_set = set()
+    history: list[dict] = []          # 跨轮累积的一问一答
+    failures: list[str] = []
+    dispatched_set: set[str] = set()
+    tool_calls_total = 0
+    total_latency = 0.0
+    answer_preview = ""
 
-    for e in events:
-        if e.get("agent") != "main_agent":
-            continue
-        if e.get("type") != "progress":
-            continue
+    for i, turn in enumerate(turns, 1):
+        events: list[dict] = []
 
-        for t in e.get("tools", []):
-            if t in SUBAGENT_NAMES:
-                dispatched_set.add(t)
+        async def on_progress(payload: dict) -> None:
+            events.append(payload)  # 只记录，不推送——评测模式没有 WS
 
-    dispatched = sorted(dispatched_set)
+        start = time.monotonic()
+        answer = await run_main_agent(turn["question"], on_progress=on_progress, history=history)
+        latency = round(time.monotonic() - start, 1)
+        total_latency += latency
+        answer_preview = answer[:150]
 
+        # ---- 从事件流审计本轮实际行为 ----
+        turn_dispatched = set()
+        for e in events:
+            if e.get("agent") != "main_agent" or e.get("type") != "progress":
+                continue
+            for t in e.get("tools", []):
+                if t in SUBAGENT_NAMES:
+                    turn_dispatched.add(t)
 
-    tool_calls = len([e for e in events if e["type"] == "tool_result"])
+        dispatched_set |= turn_dispatched
+        turn_tool_calls = len([e for e in events if e["type"] == "tool_result"])
+        tool_calls_total += turn_tool_calls
 
-    # ---- 逐项对照 expect，失败原因进 failures ----
-    expect = case["expect"]
-    failures = []
-    expected_subagents = sorted(expect.get("subagents", []))
-    if sorted(dispatched) != expected_subagents:
-        failures.append(f"调度不符：期望 {expected_subagents}，实际 {dispatched}")
-    max_tool_calls = expect.get("max_tool_calls", 99)
-    if tool_calls > max_tool_calls:
-        failures.append(f"超预算：工具调用 {tool_calls} 次 > 上限 {max_tool_calls}")
-    missing = [k for k in expect.get("must_contain", []) if k not in answer]
-    if missing:
-        failures.append(f"回答缺少关键词：{missing}")
-    max_latency = expect.get("max_latency_s", 999)
-    if latency > max_latency:
-        failures.append(f"超时：{latency}s > {max_latency}s")
+        # ---- 逐项对照本轮 expect，失败原因带上轮次号 ----
+        expect = turn.get("expect", {})
+        expected_subagents = sorted(expect.get("subagents", []))
+        if sorted(turn_dispatched) != expected_subagents:
+            failures.append(f"第{i}轮调度不符：期望 {expected_subagents}，实际 {sorted(turn_dispatched)}")
+        max_tool_calls = expect.get("max_tool_calls", 99)
+        if turn_tool_calls > max_tool_calls:
+            failures.append(f"第{i}轮超预算：工具调用 {turn_tool_calls} 次 > 上限 {max_tool_calls}")
+        missing = [k for k in expect.get("must_contain", []) if k not in answer]
+        if missing:
+            failures.append(f"第{i}轮回答缺少关键词：{missing}")
+        any_keywords = expect.get("any_contain", [])
+        if any_keywords and not any(k in answer for k in any_keywords):
+            failures.append(f"第{i}轮回答缺少关键词（任一即可）：{any_keywords}")
+        max_latency = expect.get("max_latency_s", 999)
+        if latency > max_latency:
+            failures.append(f"第{i}轮超时：{latency}s > {max_latency}s")
+
+        # ---- 本轮结束才写入历史，和 store 的规则一致 ----
+        history.append({"role": "user", "content": turn["question"]})
+        history.append({"role": "assistant", "content": answer})
 
     return CaseResult(
-        case_id=case["id"], question=case["question"],
-        passed=not failures, latency_s=latency,
-        dispatched=dispatched, tool_calls=tool_calls,
-        failures=failures, answer_preview=answer[:150],
+        case_id=case["id"],
+        question=" → ".join(t["question"] for t in turns),
+        passed=not failures, latency_s=round(total_latency, 1),
+        dispatched=sorted(dispatched_set), tool_calls=tool_calls_total,
+        failures=failures, answer_preview=answer_preview,
     )
 
 async def main() -> None:
@@ -89,13 +112,14 @@ async def main() -> None:
         cases = [c for c in cases if c["id"] in only]
     results = []
     for case in cases:
-        print(f"▶ 运行 {case['id']}：{case['question']}")
+        turns = case_turns(case)
+        print(f"▶ 运行 {case['id']}：{' → '.join(t['question'] for t in turns)}")
         try:
             result = await run_one_case(case)
         except Exception as e:
             # 单个用例崩了记成失败继续跑，不能让一个用例丢掉整轮报告
             result = CaseResult(
-                case_id=case["id"], question=case["question"],
+                case_id=case["id"], question=" → ".join(t["question"] for t in turns),
                 passed=False, latency_s=0.0,
                 dispatched=[], tool_calls=0,
                 failures=[f"用例执行异常：{type(e).__name__}: {e}"],

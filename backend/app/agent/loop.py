@@ -36,16 +36,18 @@ async def run_tool_loop(
         tools: list[dict],
         tool_map: dict,
         query:str,
-        on_progress: Optional[ProgressCallback] = None,
-        agent_name: str = "agent"
+        on_progress: ProgressCallback | None = None,
+        agent_name: str = "agent",
+        history: list[dict] | None = None,
 )->str:
     async def report(payload: dict) -> None:
         if on_progress:
             await on_progress({**payload, "agent": agent_name})
-    messages = [
-        {"role": "system", "content":  system_prompt},
-        {"role": "user", "content": query}
-    ]
+    messages = (
+        [{"role": "system", "content":  system_prompt}]
+        + (history or [])
+        + [{"role": "user", "content": query}]
+    )
     for round_i in range(MAX_ROUNDS):
         resp=await client.chat.completions.create(
             model=settings.llm_model,
@@ -64,7 +66,9 @@ async def run_tool_loop(
         await report({
                 "type":"progress",
                 "round": round_i + 1,
-                "tools": [c.function.name for c in msg.tool_calls]})
+                "tools": [c.function.name for c in msg.tool_calls],
+                "args": [c.function.arguments for c in msg.tool_calls]
+        })
 
         # 执行每个工具调用
         for tool_call in msg.tool_calls:
