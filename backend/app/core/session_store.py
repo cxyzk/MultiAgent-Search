@@ -1,21 +1,85 @@
+from datetime import datetime
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Message
+from app.db.models import Session
+
+
 class SessionStore:
-    """内存版会话历史：每个 session 只存一问一答。
+    """持久化版会话历史：写侧全量轨迹，读侧只挑文本轮"""
 
-    存的格式就是 OpenAI 的 messages 格式，塞回请求零转换。
-    """
+    MAX_MESSAGES = 20  # 回填上限，超出丢最老的（现在丢在 SQL 的 LIMIT 里）
 
-    MAX_MESSAGES = 20  # 超出丢最老的，防止上下文无限膨胀
-    def __init__(self):
-        self._sessions: dict[str, list[dict]] = {}
+    @staticmethod
+    async def ensure_session(session_id: str, db: AsyncSession, title: str = "") -> None:
+        """会话不存在就创建；已存在就跳过"""
+        if await db.get(Session, session_id) is None:
+            db.add(Session(id=session_id, title=title[:60]))
+            await db.commit()
 
-    def get_history(self, session_id: str) -> list[dict]:
-        # 返回一个拷贝，防止被修改 对外接口
-        return list(self._sessions.get(session_id, []))
+    @staticmethod
+    async def append(session_id: str,  db: AsyncSession,role: str, content: str = "",
+                     tool_calls: str | None = None,
+                     tool_call_id: str | None = None
+                     ) -> None:
+        db.add(Message(
+            session_id=session_id,role=role,content=content,
+            tool_calls=tool_calls,tool_call_id=tool_call_id
+        ))
+        await db.execute(
+            update(Session).where(Session.id == session_id)
+            .values(updated_at=datetime.now())
+        )
+        await db.commit()
 
-    def append(self, session_id: str, role: str, content: str)-> None:
-        history = self._sessions.setdefault(session_id,[])
-        history.append({"role": role, "content": content})
-        if(len(history) > self.MAX_MESSAGES):
-            #这里先从内存删除 等有数据库再全部存储
-            del history[: len(history) - self.MAX_MESSAGES]
+    @staticmethod
+    async def get_history(session_id: str, db: AsyncSession, limit: int = MAX_MESSAGES) -> list[dict]:
+        """回填给 LLM：只取文本轮，倒序切最近 N 条再反转成正序"""
+        stmt=(select(Message.role,Message.content).where(
+            Message.session_id == session_id,
+            Message.role.in_(("user", "assistant")),
+            Message.content != "",  # ← 妙在这：assistant 中间轮 content 为空，天然被滤掉
+        )
+        .order_by(Message.id.desc())
+        .limit(limit)
+        )
+        rows=(await db.execute(stmt)).all()
+        return [{"role": r, "content": c} for r, c in reversed(rows)]
+
+    @staticmethod
+    async def list_sessions(db: AsyncSession) -> list[dict]:
+        """侧边栏：最近聊的排前面"""
+        stmt = (
+            select(Session.id, Session.title, Session.updated_at)
+            .order_by(Session.updated_at.desc())
+        )
+        rows = (await db.execute(stmt)).all()
+        return [{"id": i, "title": t, "updated_at": str(u)} for i, t, u in rows]
+
+
+    @staticmethod
+    async def list_messages(session_id: str,db:AsyncSession) -> list[dict]:
+        """给前端恢复聊天记录：正序、同样只展示文本轮"""
+        stmt = (
+            select(Message.role, Message.content, Message.created_at)
+            .where(
+                Message.session_id == session_id,
+                Message.role.in_(("user", "assistant")),
+                Message.content != "",
+            )
+            .order_by(Message.id.asc())
+        )
+        rows = (await db.execute(stmt)).all()
+        return [{"role": r, "content": c, "created_at": str(t)} for r, c, t in rows]
+
+
+    @staticmethod
+    async def delete_session(session_id: str,db:AsyncSession) -> None:
+        """删会话；messages 靠外键 CASCADE 一并清掉"""
+        row = await db.get(Session, session_id)
+        if row is not None:
+            await db.delete(row)
+            await db.commit()
+
 store=SessionStore()

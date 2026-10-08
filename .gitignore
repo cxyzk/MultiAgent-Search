@@ -18,8 +18,16 @@ npm-debug.log*
 # ===== IDE =====
 .idea/
 .vscode/
+.workbuddy/
 
 # ===== 操作系统 =====
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# ===== 数据库 =====
+*.db
+
+
+/backend/app.db-shm
+/backend/app.db-wal

@@ -17,6 +17,7 @@ client = AsyncOpenAI(
 #运行注解
 ProgressCallback = Callable[[dict], Awaitable[None]]
 TokenCallback = Callable[[str], Awaitable[None]]   # 每收到一小段文本调一次
+MessageCallback = Callable[[dict], Awaitable[None]]
 
 
 async def execute_tool(tool_call, tool_map: dict) -> str:
@@ -100,6 +101,7 @@ async def run_tool_loop(
         agent_name: str = "agent",
         history: list[dict] | None = None,
         on_token: TokenCallback | None = None,
+        on_message: MessageCallback | None = None,   # ★ 新增
 )->str:
     async def report(payload: dict) -> None:
         if on_progress:
@@ -112,6 +114,8 @@ async def run_tool_loop(
     for round_i in range(MAX_ROUNDS):
         content, tool_calls, assistant_msg = await _call_model(messages, tools, on_token)
         messages.append(assistant_msg)  # 必须把 assistant 的 tool_calls 消息加进去
+        if on_message:
+            await on_message(assistant_msg)
 
         # 模型没调工具，直接返回文本
         if not tool_calls:
@@ -128,15 +132,20 @@ async def run_tool_loop(
         # 执行每个工具调用
         for tool_call in tool_calls:
             # 调用工具 把结果添加到messages给大模型
-            messages.append({
+            tool_msg = {
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": await execute_tool(tool_call, tool_map),
-            })
+            }
+            messages.append(tool_msg)
+            if on_message:
+                await on_message(tool_msg)  # ★ 补上这一行，tool 结果也落库
             await report({"type": "tool_result", "tool": tool_call.function.name})
 
     # 超过最大轮数：不带 tools 再调一次，强制模型基于已有信息收尾
     content, _, _ = await _call_model(messages, None, on_token)
+    if on_message:
+        await on_message({"role": "assistant", "content": content})  # ★
     return content
 if __name__ == "__main__":
     ...

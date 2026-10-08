@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     llm_api_key: str
     llm_model:str
     tavily_api_key: str = ""
+    db_url: str
 
     @property
     def enable_web_search(self) -> bool:
