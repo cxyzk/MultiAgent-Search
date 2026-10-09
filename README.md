@@ -12,6 +12,7 @@
 - **会话持久化**：会话与消息落盘 SQLite（SQLAlchemy 2.0 async + aiosqlite）。存储侧保留**全量轨迹**（assistant 中间轮 / tool 调用结果 / 最终回答，逐条增量落库），回填侧只喂**文本轮**（用户提问 + 最终回答），工具噪音不进上下文
 - **多轮对话**：主智能体带上下文理解追问（"那上海呢？"），历史跨服务重启、页面刷新均可恢复；子智能体保持无状态、拿到的 query 永远自包含
 - **多会话管理**：侧边栏列表 / 新建 / 切换；页面加载与断线重连后自动拉历史对齐，当前会话记在 localStorage
+- **任务状态追踪**：每次提交在 `tasks` 表留档（`running → done / error / interrupted`，含错误原因与耗时）；进程重启时残留任务自动标记中断；前端"思考中"判定基于任务状态而非猜测
 - **时效性搜索**：两个智能体的 prompt 注入当天日期；时事类查询走 Tavily 新闻索引（`topic=news` + `days` 过滤），结果携带 `published_date`
 - **评测集**：断言调度行为与回答质量，支持单轮/多轮用例，报告存档供版本间 diff
 - **实时过程可视化**：调度决策、工具执行、最终回答通过 SSE 逐条推送（token 级流式），前端日志式呈现、断线自动重连
@@ -29,7 +30,7 @@ graph TB
     MA -->|调度| WA[weather_agent]
     SA -->|tavily_search| TV[Tavily API]
     WA -->|get_weather| OM[Open-Meteo API]
-    API <-->|回填历史 / 会话管理| DB[(SQLite)]
+    API <-->|回填历史 / 会话管理 / 任务状态| DB[(SQLite)]
     MA -.->|on_message 钩子：全量轨迹落库| DB
     API -->|progress / tool_result / result 事件| FE
 ```
@@ -39,11 +40,11 @@ graph TB
 ```
 用户提问 → POST /api/task（立即返回 task_id）
         → 后台任务先回填该会话的文本轮历史（不含工具轨迹），拼进主智能体的 messages
-        → user 消息先落库，随后执行 main_agent 循环（中途崩溃提问不丢）
+        → user 消息与任务记录（running）先落库，随后执行 main_agent 循环（中途崩溃提问不丢）
         → 主智能体 function calling 调度子智能体
         → 子智能体独立上下文中执行工具、消化结果，只返回摘要
         → 每条消息（assistant 中间轮 / tool 结果 / 最终回答）经 on_message 钩子增量落库
-        → 主智能体汇总，SSE 推送 result
+        → 主智能体汇总，SSE 推送 result，任务标记 done / error
 前端全程通过 SSE 接收 progress / tool_result / token / result / error 事件
 ```
 
@@ -66,6 +67,10 @@ graph TB
 - **存全量、喂精简**：存储侧保留完整事件流——`user` 提问、`assistant` 中间轮（带 `tool_calls`）、`tool` 结果、最终回答，逐条增量落库；回填 LLM 只取**文本轮**（`role IN (user, assistant)`、`tool_calls IS NULL`、`content != ''`）。调试时可完整回放，上下文里没有工具噪音
 - **事件流模型**：一条消息一行（不是一问一答一行），`tool_call_id` 负责配对"调用声明 ↔ 调用结果"；一次询问落库行数 = 1 (user) + R (assistant 行) + T (tool 行)
 - **增量落库**：`on_message` 钩子在每条消息产生的瞬间写库，而非跑完一次性写入——中途崩溃保留现场，运行状态可实时查询
+
+## 任务状态与崩溃恢复
+
+每次提交在 `tasks` 表留一条执行记录：`running` → `done` / `error`（附错误原因与耗时）；进程被杀来不及收尾的任务，由下次启动批量标记为 `interrupted`（启动善后）。前端重连后按任务状态（而非聊天记录）恢复"思考中"判定，中断的任务会显示提示条。任务记录只随会话删除级联清理。
 
 ## 流式推送迁移实录（WebSocket → SSE）
 
@@ -137,6 +142,7 @@ npm run dev                                       # 页面起在 :5173，/api �
 | `GET` | `/api/events/{session_id}` | SSE 事件流：`progress` / `tool_result` / `token` / `result` / `error` |
 | `GET` | `/api/session` | 会话列表（最近活跃在前，含标题） |
 | `GET` | `/api/session/{id}/messages` | 指定会话的展示用历史（文本轮、正序） |
+| `GET` | `/api/session/{id}/tasks` | 会话的任务记录（状态 / 错误 / 耗时） |
 | `DELETE` | `/api/session/{id}` | 删除会话（消息级联清理） |
 | `GET` | `/health` | 健康检查 |
 
@@ -152,6 +158,6 @@ npm run dev                                       # 页面起在 :5173，/api �
 - [x] 多轮对话：主智能体带上下文做指代消解
 - [x] 流式输出（token 级打字机效果）
 - [x] 会话持久化：SQLite 全量轨迹落盘 + 多会话侧边栏（刷新 / 断线重连后回放）
-- [ ] 任务状态追踪：重连后可查"是否有任务在跑、跑到哪轮"
+- [x] 任务状态追踪：任务状态落库（含崩溃自动标记），重连后可查"是否有任务在跑"
 - [ ] 代码执行子智能体（Docker 沙箱）
 - [ ] RAG / NL2SQL 子智能体
