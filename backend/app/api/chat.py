@@ -1,23 +1,23 @@
 from fastapi import APIRouter
-from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from app.agent.main_agent import run_main_agent
 import asyncio,json,uuid
 from app.db.session import SessionLocal
+from fastapi.responses import StreamingResponse
 
 from app.core.session_store import store
 
 
 router = APIRouter()
 
-# session_id -> WebSocket，简化设计：一个会话一条连接
-connections: dict[str, WebSocket] = {}
+# session_id -> 事件队列：一个会话一条 SSE 连接
+sse_queues: dict[str, asyncio.Queue] = {}
 
-#ws推送函数 通过session_id推送数据给前端
+#sse推送函数 通过session_id推送数据给前端
 async def push(session_id: str, payload: dict) -> None:
-    ws = connections.get(session_id)
-    if ws is not None:
-        await ws.send_json(payload)
+    queue = sse_queues.get(session_id)
+    if queue is not None:
+        await queue.put(payload)
 
 class TaskRequest(BaseModel):
     query: str
@@ -76,14 +76,35 @@ async def create_task(req: TaskRequest):
     return {"task_id": task_id, "session_id": req.session_id}
 
 
-@router.websocket("/ws/{session_id}")
-async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
-    await websocket.accept()
-    connections[session_id] = websocket
-    try:
-        while True:
-            await websocket.receive_text()   # 收着消息维持连接，内容暂不处理
-    except WebSocketDisconnect:
-        connections.pop(session_id, None)
+@router.get("/events/{session_id}")
+async def sse_endpoint(session_id: str):
+    queue: asyncio.Queue = asyncio.Queue()
+    sse_queues[session_id] = queue
+
+    async def generate():
+        yield ": connected\n\n"  # ★ 立即吐一行：让代理立刻转发响应头
+        try:
+            while True:
+                try:
+                    # 15 秒没有事件就发一个注释行保活（SSE 的"心跳"）
+                    payload = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        finally:
+            # 客户端断开 → 生成器被取消 → 清理注册。
+            # is queue 守卫：防止"旧连接的清理"误删"新连接刚注册的队列"
+            if sse_queues.get(session_id) is queue:
+                sse_queues.pop(session_id, None)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # 将来 nginx 部署时禁缓冲，事件才实时到达
+        },
+    )
 
 

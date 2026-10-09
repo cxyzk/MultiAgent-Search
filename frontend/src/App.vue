@@ -74,8 +74,7 @@ const connected = ref(false)
 const running = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
-let ws: WebSocket | null = null
-let manualClose = false
+let es: EventSource | null = null
 
 // ★ 当前会话 id 改成响应式：切换会话 = 改它 + 重连
 const sessionId = ref<string>(
@@ -136,16 +135,16 @@ function createSession(): void {
 // ★ 切换会话：关旧连接 → 换 id → 重连（onopen 里会自动拉新会话的历史）
 function switchSession(id: string): void {
   if (id === sessionId.value) return
-  ws?.close()
+  es?.close()
   sessionId.value = id
   connect()
 }
 
 function connect() {
-  const socket = new WebSocket(`ws://127.0.0.1:8001/api/ws/${sessionId.value}`)
-  ws = socket
-  socket.onopen = async () => {
-    if (ws !== socket) return     // ★ 已被替换的旧连接，忽略
+  // 相对路径走 vite 代理（不再硬编码 ws://127.0.0.1:8001）
+  es = new EventSource(`/api/events/${sessionId.value}`)
+  // 每次（重）连成功都会触发 open —— 历史对齐逻辑原样保留
+  es.onopen = async () => {
     connected.value = true
     try {
       await restoreHistory()
@@ -153,19 +152,15 @@ function connect() {
       console.error('恢复历史失败', e)
     }
   }
-  socket.onmessage = (event: MessageEvent<string>) => {
-    if (ws !== socket) return
+  es.onmessage = (event: MessageEvent<string>) => {
     handleEvent(JSON.parse(event.data) as ServerEvent)
   }
-  socket.onclose = () => {
-    if (ws !== socket) return     // ★ 关键：旧连接的关闭不触发重连、不改状态
+  es.onerror = () => {
+    // 不写重连！浏览器按 ~3 秒间隔自动重连，成功后会再次触发 onopen
     connected.value = false
-    if (!manualClose) setTimeout(connect, 2000)
-  }
-  socket.onerror = () => {
-    socket.close()
   }
 }
+
 
 async function restoreHistory() {
   const data = await fetchMessages(sessionId.value)
@@ -207,10 +202,10 @@ onMounted(() => {
   connect()
   void loadSessions()
 })
+
 onUnmounted(() => {
-  manualClose = true
-  ws?.close()
-  ws = null
+  es?.close()
+  es = null
 })
 
 </script>
