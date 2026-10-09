@@ -76,11 +76,19 @@ graph TB
 
 推送是纯单向流（进度 / token / 结果），而客户端上行全是普通 HTTP——WebSocket 的双向通道只用了一半。迁移到 SSE 后，`EventSource` 自带断线重连（手写重连逻辑整个删掉），服务端从"连接字典 + accept 循环"简化为"会话队列 + StreamingResponse"。
 
-迁移中踩到最深的坑是 **vite dev 代理攒包**：页面刷新后历史约 20 秒才显示。
+SSE 的"永不结束的响应"这一特性，在迁移中踩了两个坑：
+
+**坑 1：vite dev 代理攒包**（页面刷新后历史约 20 秒才显示）
 
 - **排查**（逐层探测法）：直连后端响应头 `t+0.59s`；经 vite 代理 `t+15.47s`，且与第一条 keepalive 同刻到达——代理一直攒着响应头，直到第一块数据才转发，而首块数据恰好是 15 秒后的心跳
 - **修复**：`generate()` 开头立即 `yield ": connected\n\n"`（SSE 注释行，浏览器忽略），让代理在连接瞬间就 flush 响应头
-- **本质**：流式链路的每一层都可能缓冲（浏览器 / dev 代理 / nginx / 网关）——nginx 侧由 `X-Accel-Buffering: no` 响应头防住，dev 代理侧靠"连接即吐一行"防住
+
+**坑 2：Ctrl+C 退出卡在 "Waiting for connections to close"**（uvicorn 优雅关闭等不到"永不结束"的流）
+
+- **根因**：uvicorn 关闭流程为"请求所有连接关闭 → 等连接清空 → lifespan 清理"；SSE 连接不会自己结束，而 `timeout_graceful_shutdown` 默认为无限等待——于是卡住，直到二次强制退出（`reload` 模式的重启同样受影响）
+- **修复**：`uvicorn.run(..., timeout_graceful_shutdown=3)`——宽限 3 秒后强制取消残留任务，干脆退出
+
+**共性本质**：流式链路的每一层都可能缓冲（浏览器 / dev 代理 / nginx / 网关）——nginx 侧由 `X-Accel-Buffering: no` 响应头防住，dev 代理侧靠"连接即吐一行"防住；而"永不结束的连接"与"优雅关闭"天然矛盾，服务器平滑重启要靠显式超时划边界。
 
 ## 评测集
 
