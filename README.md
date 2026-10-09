@@ -1,6 +1,6 @@
 # MultiAgent-Search
 
-从零手搓的多智能体搜索系统：一个主智能体根据用户请求调度联网搜索 / 天气查询两个子智能体，全过程通过 WebSocket 实时可视化。
+从零手搓的多智能体搜索系统：一个主智能体根据用户请求调度联网搜索 / 天气查询两个子智能体，全过程通过 SSE 实时可视化。
 
 不依赖 LangChain / LangGraph 等编排框架——agent 循环、工具调用、多智能体调度、进度推送全部手写实现，用于深入理解 agent 系统的底层机制。
 
@@ -14,7 +14,7 @@
 - **多会话管理**：侧边栏列表 / 新建 / 切换；页面加载与断线重连后自动拉历史对齐，当前会话记在 localStorage
 - **时效性搜索**：两个智能体的 prompt 注入当天日期；时事类查询走 Tavily 新闻索引（`topic=news` + `days` 过滤），结果携带 `published_date`
 - **评测集**：断言调度行为与回答质量，支持单轮/多轮用例，报告存档供版本间 diff
-- **实时过程可视化**：调度决策、工具执行、最终回答通过 WebSocket 逐条推送，前端日志式呈现
+- **实时过程可视化**：调度决策、工具执行、最终回答通过 SSE 逐条推送（token 级流式），前端日志式呈现、断线自动重连
 - **统一循环引擎**：所有智能体复用同一个 tool-calling 循环（`run_tool_loop`），新增子智能体只需一份三元组配置
 - **聊天式前端**：Vue3 + TypeScript，Markdown 渲染 + 代码语法高亮
 
@@ -23,7 +23,7 @@
 ```mermaid
 graph TB
     U[用户] -->|HTTP POST /api/task| FE[Vue3 前端]
-    FE -->|WebSocket| API[FastAPI 服务]
+    FE -->|SSE / EventSource| API[FastAPI 服务]
     API -->|asyncio.create_task| MA[main_agent 主智能体]
     MA -->|调度| SA[search_agent]
     MA -->|调度| WA[weather_agent]
@@ -43,8 +43,8 @@ graph TB
         → 主智能体 function calling 调度子智能体
         → 子智能体独立上下文中执行工具、消化结果，只返回摘要
         → 每条消息（assistant 中间轮 / tool 结果 / 最终回答）经 on_message 钩子增量落库
-        → 主智能体汇总，WS 推送 result
-前端全程通过 WS 接收 progress / tool_result / result / error 事件
+        → 主智能体汇总，SSE 推送 result
+前端全程通过 SSE 接收 progress / tool_result / token / result / error 事件
 ```
 
 ## 性能优化实录
@@ -66,6 +66,16 @@ graph TB
 - **存全量、喂精简**：存储侧保留完整事件流——`user` 提问、`assistant` 中间轮（带 `tool_calls`）、`tool` 结果、最终回答，逐条增量落库；回填 LLM 只取**文本轮**（`role IN (user, assistant)`、`tool_calls IS NULL`、`content != ''`）。调试时可完整回放，上下文里没有工具噪音
 - **事件流模型**：一条消息一行（不是一问一答一行），`tool_call_id` 负责配对"调用声明 ↔ 调用结果"；一次询问落库行数 = 1 (user) + R (assistant 行) + T (tool 行)
 - **增量落库**：`on_message` 钩子在每条消息产生的瞬间写库，而非跑完一次性写入——中途崩溃保留现场，运行状态可实时查询
+
+## 流式推送迁移实录（WebSocket → SSE）
+
+推送是纯单向流（进度 / token / 结果），而客户端上行全是普通 HTTP——WebSocket 的双向通道只用了一半。迁移到 SSE 后，`EventSource` 自带断线重连（手写重连逻辑整个删掉），服务端从"连接字典 + accept 循环"简化为"会话队列 + StreamingResponse"。
+
+迁移中踩到最深的坑是 **vite dev 代理攒包**：页面刷新后历史约 20 秒才显示。
+
+- **排查**（逐层探测法）：直连后端响应头 `t+0.59s`；经 vite 代理 `t+15.47s`，且与第一条 keepalive 同刻到达——代理一直攒着响应头，直到第一块数据才转发，而首块数据恰好是 15 秒后的心跳
+- **修复**：`generate()` 开头立即 `yield ": connected\n\n"`（SSE 注释行，浏览器忽略），让代理在连接瞬间就 flush 响应头
+- **本质**：流式链路的每一层都可能缓冲（浏览器 / dev 代理 / nginx / 网关）——nginx 侧由 `X-Accel-Buffering: no` 响应头防住，dev 代理侧靠"连接即吐一行"防住
 
 ## 评测集
 
@@ -123,8 +133,8 @@ npm run dev                                       # 页面起在 :5173，/api �
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/api/task` | 提交提问（`query` + `session_id`），立即返回 `task_id`，结果经 WS 推送 |
-| `WS` | `/api/ws/{session_id}` | 实时事件流：`progress` / `tool_result` / `token` / `result` / `error` |
+| `POST` | `/api/task` | 提交提问（`query` + `session_id`），立即返回 `task_id`，结果经 SSE 推送 |
+| `GET` | `/api/events/{session_id}` | SSE 事件流：`progress` / `tool_result` / `token` / `result` / `error` |
 | `GET` | `/api/session` | 会话列表（最近活跃在前，含标题） |
 | `GET` | `/api/session/{id}/messages` | 指定会话的展示用历史（文本轮、正序） |
 | `DELETE` | `/api/session/{id}` | 删除会话（消息级联清理） |
@@ -132,8 +142,8 @@ npm run dev                                       # 页面起在 :5173，/api �
 
 ## 技术栈
 
-- **后端**：Python / FastAPI / WebSocket / OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / PyYAML（评测用例）
-- **前端**：Vue3（script setup）/ TypeScript / Vite / axios / marked + highlight.js + DOMPurify
+- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / PyYAML（评测用例）
+- **前端**：Vue3（script setup）/ TypeScript / Vite / axios + EventSource / marked + highlight.js + DOMPurify
 - **无 agent 框架依赖**：tool-calling 循环、多智能体编排、上下文隔离均为手写实现
 
 ## Roadmap
