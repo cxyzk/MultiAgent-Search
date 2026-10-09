@@ -7,7 +7,7 @@ export interface ChatMessage {
   text: string
 }
 
-// 后端 WS 推送的事件：按 type 可辨识的联合类型，和后端协议一一对应
+// 后端 sse 推送的事件：按 type 可辨识的联合类型，和后端协议一一对应
 export type ServerEvent =
   | { type: 'progress'; round: number; tools: string[]; task_id: string }
   | { type: 'tool_result'; tool: string; task_id: string }

@@ -15,3 +15,15 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_msg_session ON messages(session_id, id);
+
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id          TEXT PRIMARY KEY,            -- = task_id
+    session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL,               -- running / done / error / interrupted
+    query       TEXT NOT NULL,
+    error       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_task_session ON tasks(session_id, created_at);

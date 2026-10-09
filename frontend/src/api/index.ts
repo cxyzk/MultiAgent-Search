@@ -42,3 +42,17 @@ export async function fetchSessions(): Promise<SessionItem[]> {
   const { data } = await index.get<SessionItem[]>('/session')
   return data
 }
+
+export interface TaskItem {
+  id: string
+  status: 'running' | 'done' | 'error' | 'interrupted'
+  query: string
+  error: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export async function fetchTasks(sessionId: string): Promise<TaskItem[]> {
+  const { data } = await index.get<TaskItem[]>(`/session/${sessionId}/tasks`)
+  return data
+}

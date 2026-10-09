@@ -26,6 +26,7 @@
       </header>
 
       <main ref="listEl" class="message-list">
+        <div v-if="notice" class="notice">{{ notice }}</div>
         <ChatBubble v-for="m in messages" :key="m.id" :msg="m" />
         <!-- ↓↓↓ 直播气泡，加在这里 ↓↓↓ -->
         <div v-if="streamingText" class="streaming-row">
@@ -63,8 +64,8 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { fetchMessages, fetchSessions, submitTask } from './api'
-import type { SessionItem } from './api'
+import { fetchMessages, fetchSessions, fetchTasks,submitTask } from './api'
+import type { SessionItem,TaskItem } from './api'
 import type { ChatMessage, ServerEvent } from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 
@@ -75,6 +76,8 @@ const running = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
 let es: EventSource | null = null
+// ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
+const notice = ref('')
 
 // ★ 当前会话 id 改成响应式：切换会话 = 改它 + 重连
 const sessionId = ref<string>(
@@ -163,15 +166,22 @@ function connect() {
 
 
 async function restoreHistory() {
-  const data = await fetchMessages(sessionId.value)
+   // 历史和任务状态一起查
+  const [data, tasks] = await Promise.all([
+    fetchMessages(sessionId.value),
+    fetchTasks(sessionId.value),
+  ])
   messages.value = data.map((m, i) => ({
     id: i,
     kind: m.role,
     text: m.content,
   }))
-  // 最后一条是 user → 说明有个任务没跑完（可能还在跑，也可能已经断了）
-  running.value = data[data.length - 1]?.role === 'user'
+  // ★ 精确判断：有没有正在跑的任务（替换原来"最后一条是不是 user"的启发式）
+  running.value = tasks.some((t) => t.status === 'running')
+   // ★ 最近一条任务被中断 → 给用户一个解释（重连/切换会话时自动重算）
+  const latest = tasks[0]
   streamingText.value = ''
+  notice.value = latest?.status === 'interrupted' ? '上次的任务被中断了（服务重启），可以重新提问' : ''
 }
 
 // 前端点击发送
@@ -324,6 +334,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
+
+.notice {
+  margin: 0 20px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+}
+
 
 .empty-hint {
   margin: auto;

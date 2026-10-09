@@ -28,3 +28,18 @@ class Message(Base):
     # 最热的查询是"取某会话最近 N 条"，这个联合索引刚好覆盖
     __table_args__ = (Index("idx_msg_session", "session_id", "id"),)
 
+
+class Task(Base):
+    """任务：一次提问的执行记录，status = running / done / error / interrupted"""
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16))
+    query: Mapped[str] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
+    finished_at: Mapped[datetime | None] = mapped_column()
+
+    __table_args__ = (Index("idx_task_session", "session_id", "created_at"),)

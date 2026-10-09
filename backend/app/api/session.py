@@ -26,4 +26,9 @@ async def delete_session(session_id: str,db:AsyncSession= Depends(get_db)):
     await store.delete_session(session_id=session_id, db=db)
     return {"ok": True}
 
+@router.get("/session/{session_id}/tasks")
+async def list_tasks(session_id: str, db: AsyncSession = Depends(get_db)):
+    return await store.list_tasks(session_id, db)
+
+
 
