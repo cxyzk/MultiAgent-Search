@@ -1,0 +1,71 @@
+from app.db.session import SessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
+from app.service.session_service import session_service
+from app.agent.main_agent import run_main_agent
+from app.service.sse_service import sse_service
+from datetime import datetime
+
+from app.db.models import Task
+
+class TaskService:
+    @staticmethod
+    async def job(req,task_id,on_progress,on_token,on_message) -> None:
+        try:
+            async with SessionLocal() as db:
+                # ① 读【旧】历史（此时本次提问还没落库）
+                history = await session_service.get_history(req.session_id, db=db)
+                # ② 建会话 + 落 user（两个都不能省，顺序也不能反）
+                await session_service.ensure_session(req.session_id, db, title=req.query[:60])
+                await session_service.append(req.session_id, db, role="user", content=req.query)
+                await task_service.create_task(task_id, db, req.session_id, req.query)
+            result = await run_main_agent(req.query,
+                                          on_progress=on_progress,
+                                          history=history,
+                                          on_token=on_token,
+                                          on_message=on_message)
+            async with SessionLocal() as db:
+                await task_service.finish_task(task_id, db, "done")
+
+            # ④ 只推送，不再落库（原来的 append(assistant) 删掉）
+            await sse_service.push(req.session_id, {"type": "result", "task_id": task_id, "content": result})
+        except Exception as e:
+            async with SessionLocal() as db:
+                await task_service.finish_task(task_id, db, "error", error=str(e))  # ★ 补上这两行
+            # 后台任务的异常没人接，必须自己兜住推给前端，否则前端永远干等
+            await sse_service.push(req.session_id, {"type": "error", "task_id": task_id, "error": str(e)})
+
+    @staticmethod
+    async def create_task(task_id: str, db: AsyncSession, session_id: str, query: str) -> None:
+        """任务开始：落一条 running 记录"""
+        db.add(Task(id=task_id, session_id=session_id, status="running", query=query))
+        await db.commit()
+
+    @staticmethod
+    async def finish_task(task_id: str, db: AsyncSession, status: str, error: str | None = None) -> None:
+        """任务收尾：done / error，记录结束时间"""
+        await db.execute(
+            update(Task).where(Task.id == task_id)
+            .values(status=status, error=error, finished_at=datetime.now())
+        )
+        await db.commit()
+
+    @staticmethod
+    async def list_tasks(session_id: str, db: AsyncSession, limit: int = 20) -> list[dict]:
+        """会话的任务记录，最近的在前"""
+        stmt = (
+            select(Task.id, Task.status, Task.query, Task.error, Task.created_at, Task.finished_at)
+            .where(Task.session_id == session_id)
+            .order_by(Task.created_at.desc())
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+        return [
+            {"id": i, "status": s, "query": q, "error": e,
+             "created_at": str(c), "finished_at": str(f) if f else None}
+            for i, s, q, e, c, f in rows
+        ]
+
+task_service = TaskService()
+
+

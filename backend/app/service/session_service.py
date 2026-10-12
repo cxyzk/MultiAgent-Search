@@ -4,10 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Message
 from app.db.models import Session
-from app.db.models import Task
 
 
-class SessionStore:
+class SessionService:
     """持久化版会话历史：写侧全量轨迹，读侧只挑文本轮"""
 
     MAX_MESSAGES = 20  # 回填上限，超出丢最老的（现在丢在 SQL 的 LIMIT 里）
@@ -81,35 +80,4 @@ class SessionStore:
             await db.delete(row)
             await db.commit()
 
-    @staticmethod
-    async def create_task(task_id: str, db: AsyncSession, session_id: str, query: str) -> None:
-        """任务开始：落一条 running 记录"""
-        db.add(Task(id=task_id, session_id=session_id, status="running", query=query))
-        await db.commit()
-
-    @staticmethod
-    async def finish_task(task_id: str, db: AsyncSession, status: str, error: str | None = None) -> None:
-        """任务收尾：done / error，记录结束时间"""
-        await db.execute(
-            update(Task).where(Task.id == task_id)
-            .values(status=status, error=error, finished_at=datetime.now())
-        )
-        await db.commit()
-
-    @staticmethod
-    async def list_tasks(session_id: str, db: AsyncSession, limit: int = 20) -> list[dict]:
-        """会话的任务记录，最近的在前"""
-        stmt = (
-            select(Task.id, Task.status, Task.query, Task.error, Task.created_at, Task.finished_at)
-            .where(Task.session_id == session_id)
-            .order_by(Task.created_at.desc())
-            .limit(limit)
-        )
-        rows = (await db.execute(stmt)).all()
-        return [
-            {"id": i, "status": s, "query": q, "error": e,
-             "created_at": str(c), "finished_at": str(f) if f else None}
-            for i, s, q, e, c, f in rows
-        ]
-
-store=SessionStore()
+session_service=SessionService()
