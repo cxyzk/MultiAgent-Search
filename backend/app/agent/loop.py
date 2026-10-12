@@ -1,10 +1,12 @@
 from openai import AsyncOpenAI
 from app.core.config import settings
-import json
+import json,asyncio
 from typing import Awaitable, Callable
 from types import SimpleNamespace
 
 MAX_ROUNDS = 8
+# 同轮最多 3 个工具同时在跑 多agent工具执行共享 我当前的子agent也是属于这个工具调用也是占用这个池子的
+tool_semaphore = asyncio.Semaphore(8)
 
 
 #初始化客户端
@@ -33,6 +35,10 @@ async def execute_tool(tool_call, tool_map: dict) -> str:
         result = {"error": f"工具 {func_name} 执行失败：{type(e).__name__}: {e}"}
     return json.dumps(result, ensure_ascii=False)
 
+# 对执行单工具的封装 同时返回tool_call和result
+async def run_tool(tool_call,tool_map):
+    async with tool_semaphore:#限制工具执行的并发数
+     return tool_call, await execute_tool(tool_call, tool_map)
 
 
 async def _call_model(messages, tools, on_token):
@@ -129,13 +135,15 @@ async def run_tool_loop(
                 "args": [c.function.arguments for c in tool_calls]
         })
 
+        #工具的并发执行
+        results = await asyncio.gather(*(run_tool(tool_call,tool_map) for tool_call in tool_calls))
         # 执行每个工具调用
-        for tool_call in tool_calls:
+        for tool_call,result in results:
             # 调用工具 把结果添加到messages给大模型
             tool_msg = {
                 "role": "tool",
                 "tool_call_id": tool_call.id,
-                "content": await execute_tool(tool_call, tool_map),
+                "content": result
             }
             messages.append(tool_msg)
             if on_message:
