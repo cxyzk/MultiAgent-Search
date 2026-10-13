@@ -1,61 +1,65 @@
 <template>
   <div class="app-shell">
-    <!-- ★ 新增：侧边栏 -->
-    <aside class="sidebar">
-      <button class="new-btn" @click="createSession">＋ 新会话</button>
-      <ul class="session-list">
-        <li
-          v-for="s in sessions"
-          :key="s.id"
-          class="session-item"
-          :class="{ active: s.id === sessionId }"
-          @click="switchSession(s.id)"
-        >
-          {{ s.title || '新会话' }}
-        </li>
-      </ul>
-    </aside>
-    <div class="chat-app">
-      <header class="chat-header">
+    <header class="app-header">
         <h1 class="app-title">MultiAgent-Search</h1>
         <div class="header-meta">
           <span class="status-dot" :class="connected ? 'on' : 'off'"></span>
           <span>{{ connected ? '已连接' : '未连接' }}</span>
           <span class="session-id">#{{ sessionId }}</span>
         </div>
-      </header>
+    </header>
 
-      <main ref="listEl" class="message-list">
-        <div v-if="notice" class="notice">{{ notice }}</div>
-        <ChatBubble v-for="m in messages" :key="m.id" :msg="m" />
-        <!-- ↓↓↓ 直播气泡，加在这里 ↓↓↓ -->
-        <div v-if="streamingText" class="streaming-row">
-          <div class="streaming-bubble">
-            {{ streamingText }}<span class="cursor">▍</span>
+    <div class="app-body">
+       <!-- ★ 新增：侧边栏 -->
+      <aside class="sidebar">
+          <button class="new-btn" @click="createSession">＋ 新会话</button>
+          <ul class="session-list">
+            <li
+              v-for="s in sessions"
+              :key="s.id"
+              class="session-item"
+              :class="{ active: s.id === sessionId }"
+              @click="switchSession(s.id)"
+            >
+              {{ s.title || '新会话' }}
+            </li>
+          </ul>
+      </aside>
+      <div class="chat-app">
+        <main ref="listEl" class="message-list">
+          <div v-if="notice" class="notice">{{ notice }}</div>
+          <ChatBubble v-for="m in messages" :key="m.id" :msg="m" />
+          <!-- ↓↓↓ 直播气泡，加在这里 ↓↓↓ -->
+          <div v-if="streamingText" class="streaming-row">
+            <div class="streaming-bubble">
+              {{ streamingText }}<span class="cursor">▍</span>
+            </div>
           </div>
-        </div>
-        <!-- ↑↑↑ -->
-        <p v-if="messages.length === 0" class="empty-hint">
-          试试问：北京现在的天气如何？
-        </p>
-      </main>
+          <p v-if="messages.length === 0" class="empty-hint">
+            试试问：北京现在的天气如何？
+          </p>
+        </main>
 
-      <form class="input-bar" @submit.prevent="handleSend">
-        <input
-          v-model="input"
-          class="chat-input"
-          type="text"
-          placeholder="输入问题，回车发送…"
-          :disabled="!connected"
-        />
-        <button
-          class="send-btn"
-          type="submit"
-          :disabled="running || !input.trim()"
-        >
-          {{ running ? '思考中…' : '发送' }}
-        </button>
-    </form>
+        <form class="input-bar" @submit.prevent="handleSend">
+          <textarea
+              v-model="input"
+              class="chat-input"
+              placeholder="给multiagent-agent发送消息"
+              :disabled="!connected"
+              rows="4"
+              @keydown.enter.prevent="handleSend"
+          ></textarea>
+
+          <button
+            class="send-btn"
+            type="submit"
+            :disabled="running || !input.trim()"
+          >
+            {{ running ? '思考中…' : '发送' }}
+          </button>
+        </form>
+
+      </div>
     </div>
   </div>
 </template>
@@ -223,14 +227,62 @@ onUnmounted(() => {
 
 <style scoped>
 
-/* ★ 新增：两列外壳 */
 .app-shell {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
   height: 100vh;
-  max-width: 1000px;
   margin: 0 auto;
-  padding: 0 12px;
+  padding: 0 4px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 4px;          /* 左右小一点，跟 app-shell 的 padding 对齐 */
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;             /* 不被压缩 */
+}
+
+.app-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-dot.on {
+  background: #22c55e;
+}
+.status-dot.off {
+  background: #9ca3af;
+}
+
+.session-id {
+  font-family: Consolas, monospace;
+}
+
+.app-body {
+  flex: 1; /* 撑满剩余高度 */
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  min-height: 0;              /* 允许内部滚动 */
+  width: 100%;
+  padding-bottom: 12px;
 }
 
 /* ★ 新增：侧边栏 */
@@ -277,53 +329,13 @@ onUnmounted(() => {
 .session-item:hover { background: #f3f4f6; }
 .session-item.active { background: #eff6ff; color: #1d4ed8; }
 
-
-/* ★ 改：.chat-app 原来有 max-width: 760px; margin: 0 auto; —— 删掉这两行，换成： */
 .chat-app {
-  flex: 1;
-  min-width: 0;        /* 防止 flex 子项被长内容撑破 */
-  height: 100vh;
   display: flex;
   flex-direction: column;
-}
-
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.app-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.header-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #6b7280;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-.status-dot.on {
-  background: #22c55e;
-}
-.status-dot.off {
-  background: #9ca3af;
-}
-
-.session-id {
-  font-family: Consolas, monospace;
+  flex: 0 1 800px;
+  min-width: 0;        /* 防止 flex 子项被长内容撑破 */
+  max-width: 800px;
+  margin: 0 auto;        /* 在剩余空间里水平居中 */
 }
 
 .message-list {
@@ -352,40 +364,56 @@ onUnmounted(() => {
 }
 
 .input-bar {
-  margin-bottom: 20px;   /* ← 底部留白，整体上移 */
   display: flex;
-  gap: 10px;
-  padding: 14px 20px;
-  background: #fff;
-  border: 1px solid #e5e7eb;   /* 四周都加边框，圆角才好看 */
-  border-radius: 16px;          /* ← 关键 */
+  position: relative;      /* 只做定位参照 */
+  margin-bottom: 10px;
 }
 .chat-input {
   flex: 1;
-  padding: 10px 14px;
+  width: 100%;
+  padding: 12px 90px 12px 16px;   /* 右侧留出按钮空间 */
   border: 1px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   outline: none;
+  background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-.chat-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.15);
+
+
+.chat-input:disabled {
+  background: #f9fafb;
+  cursor: not-allowed;
 }
 
 .send-btn {
-  padding: 10px 22px;
+  position: absolute;
+  right: 8px;
+  bottom: 8px;        /* ← 贴右下角 */
+  /* 删掉 top 和 transform */
+  padding: 8px 18px;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #3b82f6;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
+
+
+.send-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
 .send-btn:disabled {
   background: #bfdbfe;
   cursor: not-allowed;
 }
+
 
 /* 直播气泡：不能复用 ChatBubble 里的类，scoped 样式出了组件就失效 */
 .streaming-row {
