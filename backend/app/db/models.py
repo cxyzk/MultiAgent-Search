@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, LargeBinary
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
@@ -43,3 +43,24 @@ class Task(Base):
     finished_at: Mapped[datetime | None] = mapped_column()
 
     __table_args__ = (Index("idx_task_session", "session_id", "created_at"),)
+
+
+
+class Document(Base):
+    """知识库文档"""
+    __tablename__ = "documents"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title:Mapped[str]=mapped_column(String(256))
+    source:Mapped[str | None]=mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+    id:Mapped[int]=mapped_column(primary_key=True,autoincrement=True)
+    document_id:Mapped[str]=mapped_column(String(64),ForeignKey("documents.id",ondelete="CASCADE"))
+    seq:Mapped[int]=mapped_column()
+    content:Mapped[str]=mapped_column(Text)
+    embedding:Mapped[bytes | None]=mapped_column(LargeBinary)
+
+    __table_args__ = (Index("idx_chunk_doc", "document_id"),)

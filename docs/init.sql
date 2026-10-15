@@ -27,3 +27,20 @@ CREATE TABLE IF NOT EXISTS tasks (
     finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_task_session ON tasks(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS documents (
+    id         TEXT PRIMARY KEY,           -- uuid
+    title      TEXT NOT NULL,              -- 展示名
+    source     TEXT,                       -- 原始文件名
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chunks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    seq         INTEGER NOT NULL,          -- 文档内第几段
+    content     TEXT NOT NULL,
+    embedding   BLOB                       -- v2 启用：float32 向量（BLOB，非 JSON）
+);
+CREATE INDEX IF NOT EXISTS idx_chunk_doc ON chunks(document_id);
+
