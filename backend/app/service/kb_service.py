@@ -25,6 +25,24 @@ class KBService:
         bm25_retriever.mark_dirty()          # ★ 通知检索器：索引该重建了
         return {"id": doc_id, "title": title, "chunks": len(pieces)}
 
+    @staticmethod
+    async def get_document(document_id: str, db: AsyncSession) -> dict | None:
+        """文档详情 + 全部 chunk（用于查看切分效果）"""
+        doc = await db.get(Document, document_id)
+        if doc is None:
+            return None
+        rows = (await db.execute(
+            select(Chunk.seq, Chunk.content)
+            .where(Chunk.document_id == document_id)
+            .order_by(Chunk.seq)
+        )).all()
+        return {
+            "id": doc.id, "title": doc.title, "source": doc.source,
+            "created_at": str(doc.created_at),
+            "chunks": [{"seq": s, "content": c} for s, c in rows],
+        }
+
+
 
     @staticmethod
     async def list_documents(db: AsyncSession) -> list[dict]:
