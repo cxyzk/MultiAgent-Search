@@ -80,4 +80,13 @@ class SessionService:
             await db.delete(row)
             await db.commit()
 
+
+    @staticmethod
+    async def rename_session(session_id: str,db:AsyncSession, title: str) -> None:
+        '''重命名会话'''
+        await db.execute(
+            update(Session).where(Session.id == session_id).values(title=title[:60])
+        )
+        await db.commit()
+
 session_service=SessionService()

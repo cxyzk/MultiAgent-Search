@@ -56,7 +56,6 @@ const renderedHtml = computed(() =>
 
 /* 气泡公共 */
 .bubble {
-  max-width: 72%;
   padding: 10px 14px;
   border-radius: 14px;
   font-size: 14px;
@@ -67,15 +66,16 @@ const renderedHtml = computed(() =>
 
 /* 用户：蓝底白字，右下角收一个小尖 */
 .bubble-user {
-  background: #3b82f6;
-  color: #fff;
+  max-width: 72%;
+  min-width: 0;
+  background: #edf3fe;
+  color: #0f1115;
   border-bottom-right-radius: 4px;
 }
 
 /* 最终回答：白底卡片 */
 .bubble-assistant {
   background: #fff;
-  border: 1px solid #e5e7eb;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
   border-bottom-left-radius: 4px;
 }
@@ -94,7 +94,6 @@ const renderedHtml = computed(() =>
 .bubble-error {
   background: #fee2e2;
   color: #b91c1c;
-  border: 1px solid #fecaca;
   max-width: 100%;
 }
 
@@ -111,17 +110,16 @@ const renderedHtml = computed(() =>
 /* 代码块容器：纯白底 + 细灰边 + 圆角 */
 .markdown-body :deep(pre) {
   background: #f6f8fa;
-  border: 1px solid #d0d7de;
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 0;
   overflow-x: auto;
 }
 
 /* 块内代码：透明底，颜色全部交给高亮主题 */
 .markdown-body :deep(pre code) {
   background: transparent;
-  padding: 0;
-  font-size: 13px;
+  padding: 12px 16px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -137,7 +135,6 @@ const renderedHtml = computed(() =>
 .markdown-body :deep(table) { border-collapse: collapse; }
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
-  border: 1px solid #e5e7eb;
   padding: 4px 10px;
 }
 </style>

@@ -43,6 +43,15 @@ export async function fetchSessions(): Promise<SessionItem[]> {
   return data
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await index.delete(`/session/${sessionId}`)
+}
+
+//重命名会话
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  await index.patch(`/session/${sessionId}`, { title })
+}
+
 export interface TaskItem {
   id: string
   status: 'running' | 'done' | 'error' | 'interrupted'
@@ -56,3 +65,6 @@ export async function fetchTasks(sessionId: string): Promise<TaskItem[]> {
   const { data } = await index.get<TaskItem[]>(`/session/${sessionId}/tasks`)
   return data
 }
+
+
+

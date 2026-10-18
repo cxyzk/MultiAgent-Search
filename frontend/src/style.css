@@ -5,6 +5,99 @@
 body {
   margin: 0;
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  background: #f3f4f6;
+  background: #ffffff;
   color: #1f2937;
+}
+
+/* ===== 弹窗 ===== */
+.dlg-mask {
+  position: fixed;
+  inset: 0;                          /* 顶/右/底/左 = 0，铺满视口 */
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;                     /* 高于悬浮菜单(1000) */
+}
+.dlg {
+  width: 340px;
+  padding: 20px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+}
+.dlg-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #111827;
+}
+.dlg-msg {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #6b7280;
+}
+.dlg-input {
+  width: 100%;
+  padding: 9px 12px;
+  margin: 2px 0 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.dlg-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.ghost { background: #f3f4f6; color: #374151; }
+.btn.ghost:hover { background: #e5e7eb; }
+.btn.primary { background: #3b82f6; color: #fff; }
+.btn.primary:hover:not(:disabled) { background: #2563eb; }
+.btn.danger { background: #ef4444; color: #fff; }
+.btn.danger:hover:not(:disabled) { background: #dc2626; }
+
+
+/* ===== 滚动条：全站统一（细胶囊 · 悬浮感）===== */
+/* Chrome / Edge / Safari */
+::-webkit-scrollbar {
+  width: 10px;                       /* 轨道宽（内缩后视觉只有 4px） */
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;           /* 轨道透明 → 滑块像"悬浮"在内容上 */
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+  border: 3px solid transparent;     /* ★ 透明边框 + 背景裁切 = 视觉变细 */
+  background-clip: padding-box;
+  transition: background-color 0.15s; /* 写上无害（部分浏览器不生效） */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+  border-width: 1px;                 /* ★ hover 视觉变宽：4px → 8px */
+}
+::-webkit-scrollbar-corner {
+  background: transparent;           /* 横竖滚动条交汇的小方块，别露白 */
+}
+
+/* Firefox（不支持 webkit 伪元素，用另一套 API） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
 }

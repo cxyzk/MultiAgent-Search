@@ -5,6 +5,7 @@ from app.service.session_service import session_service
 from app.service.task_service import task_service
 from fastapi import Depends
 from app.db.session import get_db
+from pydantic import BaseModel
 
 
 
@@ -27,9 +28,19 @@ async def delete_session(session_id: str,db:AsyncSession= Depends(get_db)):
     await session_service.delete_session(session_id=session_id, db=db)
     return {"ok": True}
 
+
+class RenameBody(BaseModel):
+    title: str
+@router.patch("/session/{session_id}")
+async def rename_session(session_id:str,body:RenameBody,db: AsyncSession = Depends(get_db)):
+    await session_service.rename_session(session_id=session_id, db=db, title=body.title)
+    return {"ok": True}
+
 @router.get("/session/{session_id}/tasks")
 async def list_tasks(session_id: str, db: AsyncSession = Depends(get_db)):
     return await task_service.list_tasks(session_id, db)
+
+
 
 
 
