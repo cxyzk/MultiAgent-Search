@@ -31,3 +31,5 @@ Desktop.ini
 
 /backend/app.db-shm
 /backend/app.db-wal
+/docs/problem.md
+/docs/api-contract.md
