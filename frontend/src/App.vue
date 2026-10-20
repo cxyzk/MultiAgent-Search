@@ -1,48 +1,69 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'is-mobile': isMobile }">
 
-    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <div class="sider-title">
-        <span>MultiAgent-Search</span>
-        <button
-            class="collapse-btn"
-            type="button"
-            :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-            @click="sidebarCollapsed = !sidebarCollapsed"
-        >
-          <ViewBoxIcon/>
+    <!-- 移动端抽屉遮罩：点一下收起侧边栏 -->
+    <div
+        v-if="isMobile && drawerOpen"
+        class="drawer-mask"
+        @click="onDrawerMask"
+    ></div>
+
+    <aside
+        class="sidebar"
+        :class="{ collapsed: sidebarCollapsed, 'drawer-open': drawerOpen }"
+    >
+      <!-- 内层锁死 261px：折叠动画期间只被外层裁切，子元素完全不重排 -->
+      <div class="sidebar-inner">
+        <div class="sider-title">
+          <span>MultiAgent-Search</span>
+        </div>
+
+        <button class="new-btn" @click="createSession">
+          <NewChatIcon/>
+          开启新会话
         </button>
+        <button class="new-btn kb-btn" type="button" @click="kbOpen = true">
+          <span class="kb-btn-icon">📚</span>
+          知识库
+        </button>
+        <ul class="session-list">
+          <li
+              v-for="s in sessions"
+              :key="s.id"
+              class="session-item"
+              :class="{ active: s.id === sessionId }"
+              @click="switchSession(s.id)"
+          >
+            <span class="session-title">{{ s.title || '新会话' }}</span>
+            <button
+                class="more-btn"
+                type="button"
+                aria-label="更多操作"
+                aria-haspopup="menu"
+                :aria-expanded="menu.visible && menu.session?.id === s.id"
+                @click.stop="toggleMenu($event, s)"
+            >
+              <svg class="more-icon" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="2"/>
+                <circle cx="12" cy="12" r="2"/>
+                <circle cx="19" cy="12" r="2"/>
+              </svg>
+            </button>
+          </li>
+        </ul>
       </div>
 
-      <button class="new-btn" @click="createSession">
-        <NewChatIcon/>
-        开启新会话
+      <!-- 折叠/抽屉按钮必须在内层之外：内层折叠时 opacity:0 + pointer-events:none，
+           放进去就会连"展开"的入口一起失效（开关不能被开关隐藏） -->
+      <button
+          class="collapse-btn"
+          type="button"
+          :title="isMobile ? '收起菜单' : (sidebarCollapsed ? '展开侧边栏' : '收起侧边栏')"
+          @click="isMobile ? (drawerOpen = false) : (sidebarCollapsed = !sidebarCollapsed)"
+      >
+        <ViewBoxIcon/>
       </button>
-      <ul class="session-list">
-        <li
-            v-for="s in sessions"
-            :key="s.id"
-            class="session-item"
-            :class="{ active: s.id === sessionId }"
-            @click="switchSession(s.id)"
-        >
-          <span class="session-title">{{ s.title || '新会话' }}</span>
-          <button
-              class="more-btn"
-              type="button"
-              aria-label="更多操作"
-              aria-haspopup="menu"
-              :aria-expanded="menu.visible && menu.session?.id === s.id"
-              @click.stop="toggleMenu($event, s)"
-          >
-            <svg class="more-icon" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="5" cy="12" r="2"/>
-              <circle cx="12" cy="12" r="2"/>
-              <circle cx="19" cy="12" r="2"/>
-            </svg>
-          </button>
-        </li>
-      </ul>
+
       <Teleport to="body">
         <div
             v-if="menu.visible"
@@ -60,11 +81,24 @@
 
     <div class="app-body">
       <header class="app-header">
+        <!-- 移动端：汉堡按钮打开侧边栏抽屉 -->
+        <button
+            v-if="isMobile"
+            class="hamburger"
+            type="button"
+            aria-label="打开菜单"
+            @click="drawerOpen = true"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16"/>
+          </svg>
+        </button>
         <div class="session-title">{{ sessions.find((s) => s.id === sessionId)?.title || '新会话' }}</div>
         <div class="header-meta">
           <span class="status-dot" :class="connected ? 'on' : 'off'"></span>
           <span>{{ connected ? '已连接' : '未连接' }}</span>
-          <span class="session-id">#{{ sessionId }}</span>
+          <span v-if="!isMobile" class="session-id">#{{ sessionId }}</span>
         </div>
       </header>
       <div class="chat-app">
@@ -77,7 +111,7 @@
             </div>
           </div>
           <p v-if="messages.length === 0" class="empty-hint">
-            试试问：北京现在的天气如何？
+            试试问：知识库里关于并发限流的笔记说了什么？
           </p>
         </main>
 
@@ -85,19 +119,43 @@
           <textarea
               v-model="input"
               class="chat-input"
-              placeholder="给multiagent-agent发送消息"
+              placeholder="给 multiagent-agent 发送消息"
               :disabled="!connected"
-              rows="4"
-              @keydown.enter.prevent="handleSend"
+              rows="2"
+              @keydown.enter.exact.prevent="handleSend"
           ></textarea>
 
-          <button
-              class="send-btn"
-              type="submit"
-              :disabled="running || !input.trim()"
-          >
-            {{ running ? '思考中…' : '发送' }}
-          </button>
+          <!-- 工具栏：左侧放各类开关，右侧放发送 -->
+          <div class="input-toolbar">
+            <div class="toolbar-left">
+              <button
+                  class="tool-toggle"
+                  type="button"
+                  disabled
+                  title="即将支持"
+              >
+                <ThinkingIcon/>
+                深度思考
+              </button>
+              <button
+                  class="tool-toggle"
+                  type="button"
+                  disabled
+                  title="即将支持"
+              >
+                <SearchIcon/>
+                智能搜索
+              </button>
+            </div>
+
+            <button
+                class="send-btn"
+                type="submit"
+                :disabled="running || !input.trim()"
+            >
+              {{ running ? '思考中…' : '发送' }}
+            </button>
+          </div>
         </form>
 
       </div>
@@ -119,6 +177,7 @@
         @confirm="onDeleteConfirm"
         @cancel="deleteDialog.open = false"
     />
+    <KbPanel :open="kbOpen" @close="kbOpen = false"/>
 
   </div>
 </template>
@@ -126,11 +185,14 @@
 
 <script setup lang="ts">
 import {ref, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
-import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api'
-import type {SessionItem, TaskItem} from './api'
-import type {ChatMessage, ServerEvent} from './types/types'
+import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
+import type {SessionItem, TaskItem} from './api/session'
+import type {ChatMessage, Citation, ServerEvent} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
+import KbPanel from './components/KbPanel.vue'
+import ThinkingIcon from './components/ThinkingIcon.vue'
+import SearchIcon from './components/SearchIcon.vue'
 
 
 const messages = ref<ChatMessage[]>([])
@@ -142,11 +204,28 @@ const streamingText = ref('')
 let es: EventSource | null = null
 // ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
 const notice = ref('')
+// ★ 知识库面板开关
+const kbOpen = ref(false)
+// ★ 本轮累积的知识库引用，等 result 到达时挂到那条 assistant 消息上
+let pendingCitations: Citation[] = []
+
+// ★ 生成短 id（8 位）。
+//   crypto.randomUUID() 只在安全上下文（HTTPS / localhost）可用；
+//   手机通过 http://192.168.x.x 访问时它是 undefined，会直接抛错导致白屏。
+//   这里降级到 getRandomValues，再不支持才用 Math.random。
+function shortId(): string {
+  const c = globalThis.crypto
+  if (c?.randomUUID) return c.randomUUID().slice(0, 8)
+  if (c?.getRandomValues) {
+    const buf = new Uint8Array(4)
+    c.getRandomValues(buf)
+    return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  return Math.random().toString(16).slice(2, 10).padEnd(8, '0')
+}
 
 // ★ 当前会话 id 改成响应式：切换会话 = 改它 + 重连
-const sessionId = ref<string>(
-    localStorage.getItem('session_id') ?? crypto.randomUUID().slice(0, 8),
-)
+const sessionId = ref<string>(localStorage.getItem('session_id') || shortId())
 // ★ 值一变就同步到 localStorage，刷新后回到同一会话
 watch(sessionId, (id) => localStorage.setItem('session_id', id), {immediate: true})
 
@@ -239,31 +318,72 @@ import ViewBoxIcon from './components/ViewBoxIcon.vue'
 const sidebarCollapsed = ref(localStorage.getItem('sidebar_collapsed') === '1')
 watch(sidebarCollapsed, (v) => localStorage.setItem('sidebar_collapsed', v ? '1' : '0'))
 
+// ★ 移动端：侧边栏做成抽屉。isMobile 决定是"抽屉"还是"常驻栏"的交互模型
+const isMobile = ref(false)
+// ★ 抽屉是否打开（仅移动端生效）
+const drawerOpen = ref(false)
+let mql: MediaQueryList | null = null
 
-function push(kind: ChatMessage['kind'], text: string): void {
-  messages.value.push({id: Date.now(), kind, text})
+function syncMobile(e: { matches: boolean }): void {
+  isMobile.value = e.matches
+  if (!e.matches) drawerOpen.value = false   // 切回桌面端时收起抽屉，避免遮罩残留
+}
+
+function onDrawerMask(): void {
+  drawerOpen.value = false
+}
+
+// 移动端选中会话后自动收起抽屉（否则挡住聊天区）
+watch(sessionId, () => {
+  if (isMobile.value) drawerOpen.value = false
+})
+
+
+function push(kind: ChatMessage['kind'], text: string, citations?: Citation[]): void {
+  messages.value.push({id: Date.now() + Math.random(), kind, text, citations})
+}
+
+// 工具名 -> 中文标签，进度日志不再直接甩英文函数名
+const TOOL_LABEL: Record<string, string> = {
+  kb_search: '知识库检索',
+  search_agent: '联网搜索',
+  weather_agent: '天气查询',
+  tavily_search: 'Tavily 搜索',
+  get_weather: '天气 API',
+}
+
+function labelOf(tool: string): string {
+  return TOOL_LABEL[tool] ?? tool
 }
 
 // 后端推送 -> 前端消息的唯一入口
 function handleEvent(msg: ServerEvent): void {
   switch (msg.type) {
     case 'progress':
-      push('step', `⚙ 第 ${msg.round} 轮 · 调用工具 ${msg.tools.join(', ')}`)
+      push('step', `⚙ 第 ${msg.round} 轮 · ${msg.tools.map(labelOf).join('、')}`)
       break
     case 'tool_result':
-      push('step', `✅ ${msg.tool} 返回`)
+      push('step', `✅ ${labelOf(msg.tool)} 返回`)
+      break
+    case 'citations':
+      // 只暂存，等 result 时随最终回答一起展示；按 chunk_id 去重（多轮检索可能重复命中）
+      for (const c of msg.items) {
+        if (!pendingCitations.some((x) => x.chunk_id === c.chunk_id)) pendingCitations.push(c)
+      }
       break
     case 'token':
       streamingText.value += msg.delta
       break
     case 'result':
-      push('assistant', msg.content)
+      push('assistant', msg.content, pendingCitations.length ? pendingCitations : undefined)
+      pendingCitations = []
       streamingText.value = ''
       running.value = false
       void loadSessions()   // ★ 标题/排序变了，刷新侧边栏
       break
     case 'error':
       push('error', msg.error)
+      pendingCitations = []
       streamingText.value = ''
       running.value = false
       break
@@ -283,7 +403,7 @@ async function loadSessions(): Promise<void> {
 function createSession(): void {
   // 当前会话就是空的、且已经存在于列表 → 不重复创建
   if (messages.value.length === 0 && sessions.value.some((s) => s.id === sessionId.value)) return
-  const id = crypto.randomUUID().slice(0, 8)
+  const id = shortId()
   sessions.value.unshift({id, title: '', updated_at: ''})
   switchSession(id)
 }
@@ -344,6 +464,7 @@ async function handleSend(): Promise<void> {
   push('user', query)
   input.value = ''
   running.value = true
+  pendingCitations = []          // ★ 新一轮开始，清掉上一轮残留的引用
   try {
     await submitTask(query, sessionId.value)
   } catch (e) {
@@ -362,12 +483,19 @@ watch(
 )
 
 onMounted(() => {
+  // 移动端断点：768px 以下走抽屉模式
+  mql = window.matchMedia('(max-width: 768px)')
+  syncMobile(mql)
+  mql.addEventListener('change', syncMobile)
+
   connect()
   void loadSessions()
   document.addEventListener('click', closeMenu)      // ★ 新增
 })
 
 onUnmounted(() => {
+  mql?.removeEventListener('change', syncMobile)
+  mql = null
   document.removeEventListener('click', closeMenu)   // ★ 新增：不移除会泄漏，还会响应已卸载的组件
   es?.close()
   es = null
@@ -381,10 +509,15 @@ onUnmounted(() => {
 .app-shell {
   display: flex;
   flex-direction: row;
+  /* 100vh 在移动端是"地址栏隐藏时的最大高度"，地址栏一出现就会把底部顶出屏幕。
+     100dvh 跟随可视视口变化；不支持的浏览器回退到 100vh。 */
   height: 100vh;
+  height: 100dvh;
   margin: 0 auto;
   padding: 0 4px;
   overflow: hidden;
+  /* iOS 键盘弹起时 visualViewport 会缩小，用 svh 下限兜底避免整块被推到屏幕外 */
+  min-height: -webkit-fill-available;
 }
 
 .app-header {
@@ -455,39 +588,70 @@ onUnmounted(() => {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.collapse-btn:hover {
+
+@media (hover: hover) {
+  .collapse-btn:hover {
+    background: #e9ecf1;
+    color: #111827;
+  }
+}
+
+.collapse-btn:active {
   background: #e9ecf1;
   color: #111827;
 }
 
-/* 折叠态：变成 48px 窄条，只留按钮 */
+/* 侧边栏：完整态 */
 .sidebar {
-  transition: width 0.2s ease;
-}
-.sidebar.collapsed {
-  width: 48px;
-}
-.sidebar.collapsed .sider-title {
-  justify-content: center;
-  padding: 0 4px 10px;
-}
-.sidebar.collapsed .sider-title > span,
-.sidebar.collapsed .new-btn,
-.sidebar.collapsed .session-list {
-  display: none;
-}
-
-/* ★ 新增：侧边栏 */
-.sidebar {
-  width: 261px;
+  --sb-w: 261px;
+  position: relative; /* 折叠按钮绝对定位的参照 */
+  width: var(--sb-w);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   padding: 14px 0;
   background: rgb(249, 250, 251);
   border-right: 0.8px solid rgb(0, 0, 0, 0.04);
   min-height: 0;
+  overflow: hidden; /* 折叠时裁掉内层，而不是让内容重排 */
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 折叠态：变成 48px 窄条，只留按钮 */
+.sidebar.collapsed {
+  width: 48px;
+}
+
+/* 内层锁死 261px：外层怎么缩，子元素的计算宽度都不变
+   → 标题的 text-overflow 省略号位置全程固定，不会逐帧跳动 */
+.sidebar-inner {
+  width: var(--sb-w);
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.12s ease;
+}
+
+/* 折叠时淡出而非 display:none 硬切；pointer-events 保证折叠态点不到 */
+.sidebar.collapsed .sidebar-inner {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease;
+}
+
+/* 折叠按钮常驻：放在内层之外，任何状态都点得到（开关不能被开关隐藏） */
+.sidebar .collapse-btn {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  z-index: 2;
+}
+
+.sidebar.collapsed .collapse-btn {
+  right: 50%;
+  transform: translateX(50%);
 }
 
 .sider-title {
@@ -495,12 +659,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 0 12px 10px;      /* 按你现有间距微调 */
+  /* 右侧留出折叠按钮的绝对定位空间，避免标题被压到按钮底下 */
+  padding: 0 40px 10px 12px;
   font-size: 15px;
   font-weight: 700;
   color: #111827;
   white-space: nowrap;
 }
+
 .new-btn {
   display: flex;
   align-items: center;
@@ -534,10 +700,23 @@ onUnmounted(() => {
   transform: translateY(-1px);
 }
 
+/* 知识库入口：比"开启新会话"弱一档，避免两个主按钮抢注意力 */
+.kb-btn {
+  margin-top: 0;
+  color: #374151;
+  font-size: 13px;
+}
+
+.kb-btn-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .session-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  overflow-x: hidden; /* ← 加这行：禁止横向滚动 */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -557,10 +736,21 @@ onUnmounted(() => {
   font-size: 14px;
   color: #374151;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.session-item:hover {
-  background: #f3f4f6;
+/* 只有真正支持悬停的设备（鼠标）才用 hover 变色。
+   手机上 :hover 会在点击后"粘住"，造成点完整行一直是灰底 */
+@media (hover: hover) {
+  .session-item:hover {
+    background: #f3f4f6;
+    border-radius: 13px;
+  }
+}
+
+/* 触摸/鼠标按下时的即时反馈，替代浏览器默认的 tap highlight */
+.session-item:active {
+  background: #e5e7eb;
   border-radius: 13px;
 }
 
@@ -596,14 +786,35 @@ onUnmounted(() => {
   transition: opacity 0.15s, background 0.15s;
 }
 
-.session-item:hover .more-btn,
+/* 只有支持悬停的设备才"平时隐身、悬停出现"。
+   触摸设备没有 hover，若照搬会导致三点按钮永远不可见 → 手机上无法重命名/删除 */
+@media (hover: hover) {
+  .session-item:hover .more-btn {
+    opacity: 1;
+  }
+}
+
+/* 触摸设备：三点按钮常驻（降低存在感即可，不能藏） */
+@media (hover: none) {
+  .more-btn {
+    opacity: 0.55;
+  }
+}
+
 .session-item.active .more-btn {
   opacity: 1;
 }
 
-.more-btn:hover {
+.more-btn:active {
   background: #e5e7eb;
   color: #3b82f6;
+}
+
+@media (hover: hover) {
+  .more-btn:hover {
+    background: #e5e7eb;
+    color: #3b82f6;
+  }
 }
 
 /* ★ 新增：悬浮菜单 */
@@ -685,51 +896,139 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+/* 输入区外框：边框、圆角、聚焦高亮都集中在这里，内部元素一律无边框 */
 .input-bar {
   display: flex;
-  position: relative; /* 只做定位参照 */
-  margin-bottom: 20px;
+  flex-direction: column;
+  /* 左右 16px 与 .message-list 的 padding 对齐，让输入框和消息气泡左右边缘齐平 */
+  margin: 0 16px 20px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 16px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .chat-input {
-  flex: 1;
   width: 100%;
-  padding: 12px 90px 12px 16px; /* 右侧留出按钮空间 */
-  border: 1px solid #d1d5db;
-  border-radius: 16px;
+  min-height: 72px;
+  max-height: 200px;
+  padding: 14px 16px 8px;
+  border: none;
+  border-radius: 16px 16px 0 0;
   font-size: 15px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
   "PingFang SC", "Hiragino Sans GB",
   "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.6;
+  color: #1f2937;
   outline: none;
-  background: #fff;
+  background: transparent;
   box-sizing: border-box;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  resize: none; /* 卡片布局下不给手动拖拽，高度由 rows + max-height 控制 */
+  overflow-y: auto;
 }
 
+.chat-input::placeholder {
+  color: #9ca3af;
+}
 
 .chat-input:disabled {
   background: #f9fafb;
   cursor: not-allowed;
 }
 
+/* 工具栏：左侧放各类开关，右侧放发送 */
+.input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 8px 10px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* 预留开关按钮：现在禁用态，功能接上后去掉 disabled 即可 */
+.tool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 100px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* 图标跟着文字色走（currentColor），尺寸压到 13px 与 12px 文字更协调。
+   子组件内部的 svg 带的是自己的 scope id，必须用 :deep() 才能选中 */
+.tool-toggle :deep(svg) {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+@media (hover: hover) {
+  .tool-toggle:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    color: #374151;
+  }
+}
+
+.tool-toggle:active:not(:disabled) {
+  background: #f3f4f6;
+  transform: scale(0.97);
+}
+
+/* 禁用态用颜色变浅而不是整体 opacity：SVG 描边能均匀变灰，不会糊成一团 */
+.tool-toggle:disabled {
+  color: #c7cbd1;
+  border-color: #eceef1;
+  background: #fcfcfd;
+  cursor: not-allowed;
+}
+
+/* 激活态：接上真实开关后加 .on 即可 */
+.tool-toggle.on {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
 .send-btn {
-  position: absolute;
-  right: 8px;
-  bottom: 8px; /* ← 贴右下角 */
-  /* 删掉 top 和 transform */
-  padding: 8px 18px;
+  flex-shrink: 0;
+  padding: 7px 18px;
   border: none;
-  border-radius: 12px;
+  border-radius: 11px;
   background: #3b82f6;
   color: #fff;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
+  transition: background 0.15s;
 }
 
+@media (hover: hover) {
+  .send-btn:hover:not(:disabled) {
+    background: #2563eb;
+  }
+}
 
-.send-btn:hover:not(:disabled) {
+.send-btn:active:not(:disabled) {
   background: #2563eb;
+  transform: scale(0.97);
 }
 
 .send-btn:disabled {
@@ -738,20 +1037,21 @@ onUnmounted(() => {
 }
 
 
-/* 直播气泡：不能复用 ChatBubble 里的类，scoped 样式出了组件就失效 */
+/* 直播气泡：不能复用 ChatBubble 里的类（scoped 样式出了组件就失效），
+   但观感必须和最终 assistant 气泡一致：纯文本流、无边框无阴影。
+   否则打字过程是"带框卡片"、打完却突然变成无框，会有跳变 */
 .streaming-row {
   display: flex;
   justify-content: flex-start;
 }
 
 .streaming-bubble {
-  max-width: 72%;
-  padding: 10px 14px;
-  border-radius: 14px;
-  border-bottom-left-radius: 4px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   font-size: 14px;
   line-height: 1.7;
   white-space: pre-wrap; /* 保留换行，直播裸文本 */
@@ -767,6 +1067,184 @@ onUnmounted(() => {
 @keyframes blink {
   50% {
     opacity: 0;
+  }
+}
+
+/* ============================================================
+   移动端适配（<=768px）
+   桌面端：侧边栏常驻，可折叠成 48px 窄条
+   移动端：侧边栏变成覆盖式抽屉，默认隐藏、遮罩、滑入滑出
+   ============================================================ */
+
+/* 汉堡按钮：仅移动端出现 */
+.hamburger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+@media (hover: hover) {
+  .hamburger:hover {
+    background: #f3f4f6;
+  }
+}
+
+.hamburger:active {
+  background: #e5e7eb;
+}
+
+.hamburger svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* 抽屉遮罩 */
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(17, 24, 39, 0.4);
+  animation: mask-in 0.18s ease;
+}
+
+@keyframes mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 侧边栏改成覆盖式抽屉：脱离文档流，不再挤压聊天区 */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 950; /* 高于遮罩 900 */
+    width: 82vw; /* 不用固定 261px，窄屏手机也能读全标题 */
+    max-width: 300px;
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.12);
+    border-right: none;
+    padding-top: 12px;
+  }
+
+  /* 抽屉打开 */
+  .sidebar.drawer-open {
+    transform: translateX(0);
+  }
+
+  /* 抽屉态下内层始终可见（不受 collapsed 影响），宽度自适应侧边栏 */
+  .sidebar .sidebar-inner,
+  .sidebar.collapsed .sidebar-inner {
+    width: 100%;
+    opacity: 1;
+    pointer-events: auto;
+    transition: none;
+  }
+
+  /* 移动端不用折叠态，宽度交给 drawer 控制 */
+  .sidebar.collapsed {
+    width: 82vw;
+  }
+
+  /* 收起按钮固定在抽屉右上角 */
+  .sidebar .collapse-btn {
+    top: 12px;
+    right: 10px;
+  }
+
+  /* 移动端折叠按钮语义变成"关闭抽屉"，图标仍复用 */
+  .sidebar .collapse-btn svg {
+    transform: rotate(180deg);
+  }
+
+  /* 聊天区撑满全宽（侧边栏已脱离文档流） */
+  .app-body {
+    width: 100%;
+  }
+
+  .chat-app {
+    max-width: none; /* 手机上不需要 800px 阅读宽度限制 */
+    margin: 0;
+  }
+
+  /* ---- 移动端三段式固定布局：header 顶部、消息区滚动、输入框底部 ----
+     不用 sticky/fixed 定位（会和 iOS 键盘打架），而是让 flex 容器吃满高度，
+     中间的消息区独占剩余空间并自己滚动——这样 header 和输入框天然不动。 */
+  .app-body {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-header {
+    padding: 0 12px;
+    /* 刘海屏安全区：避免标题被状态栏遮住 */
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    background: #fff;
+  }
+
+  .message-list {
+    padding: 12px;
+    /* 关键：只有这一层滚动，且必须能被子项压缩 */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch; /* iOS 惯性滚动 */
+    overscroll-behavior: contain; /* 滚到底不带着整页弹 */
+  }
+
+  /* 输入框固定在底部，并避开 iPhone 底部横条 */
+  .input-bar {
+    margin: 0 12px;
+    margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+  }
+
+  /* 输入框内部的 textarea 手机上不需要太高，把空间留给消息 */
+  .chat-input {
+    min-height: 56px;
+    max-height: 30vh;
+    padding: 12px 14px 6px;
+    font-size: 16px; /* 16px 以下 iOS 会自动放大页面，务必别调小 */
+  }
+
+  /* 移动端：气泡可以更宽，长代码才不会被压得很难读 */
+  .streaming-bubble {
+    max-width: 86%;
+  }
+
+  /* 关闭按钮足够大，方便手指点 */
+  .sidebar .collapse-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* 超窄屏（<=380px）再收一点 */
+@media (max-width: 380px) {
+  .sider-title {
+    font-size: 14px;
+  }
+
+  .new-btn {
+    font-size: 13px;
+    padding: 8px 10px;
   }
 }
 
