@@ -1,70 +1,11 @@
 import axios from 'axios'
 
-const index = axios.create({
-  baseURL: '/api',
-  timeout: 10_000,
+const request = axios.create({
+    baseURL: '/api',
+    timeout: 10_000,
 })
 
-export interface TaskSubmitResponse {
-    task_id:string,
-    session_id:string
-}
-
-export async function submitTask(query:string,sessionId:string): Promise<TaskSubmitResponse>
-{
-    const { data }=await index.post<TaskSubmitResponse>('/task',{
-        query,
-        session_id:sessionId
-    })
-    return data
-}
-
-
-export interface SessionMessage {
-  role: 'user' | 'assistant'
-  content: string
-  created_at: string
-}
-
-export async function fetchMessages(sessionId: string): Promise<SessionMessage[]> {
-  const { data } = await index.get<SessionMessage[]>(`/session/${sessionId}/messages`)
-  return data
-}
-
-
-export interface SessionItem {
-  id: string
-  title: string
-  updated_at: string
-}
-
-export async function fetchSessions(): Promise<SessionItem[]> {
-  const { data } = await index.get<SessionItem[]>('/session')
-  return data
-}
-
-export async function deleteSession(sessionId: string): Promise<void> {
-  await index.delete(`/session/${sessionId}`)
-}
-
-//重命名会话
-export async function renameSession(sessionId: string, title: string): Promise<void> {
-  await index.patch(`/session/${sessionId}`, { title })
-}
-
-export interface TaskItem {
-  id: string
-  status: 'running' | 'done' | 'error' | 'interrupted'
-  query: string
-  error: string | null
-  created_at: string
-  finished_at: string | null
-}
-
-export async function fetchTasks(sessionId: string): Promise<TaskItem[]> {
-  const { data } = await index.get<TaskItem[]>(`/session/${sessionId}/tasks`)
-  return data
-}
+export default request
 
 
 
