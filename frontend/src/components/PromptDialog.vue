@@ -4,12 +4,12 @@
       <div class="dlg" role="dialog" aria-modal="true">
         <h3 class="dlg-title">{{ title }}</h3>
         <input
-          ref="inputEl"
-          v-model="value"
-          class="dlg-input"
-          maxlength="60"
-          @keyup.enter="submit"
-          @keyup.esc="$emit('cancel')"
+            ref="inputEl"
+            v-model="value"
+            class="dlg-input"
+            maxlength="60"
+            @keyup.enter="submit"
+            @keyup.esc="$emit('cancel')"
         />
         <div class="dlg-actions">
           <button class="btn ghost" @click="$emit('cancel')">取消</button>
@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import {nextTick, ref, watch} from 'vue'
 
 const props = defineProps<{
   open: boolean

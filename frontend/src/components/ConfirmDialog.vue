@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { watch, onUnmounted } from 'vue'
+import {watch, onUnmounted} from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -30,6 +30,7 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>()
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('cancel')
 }
+
 watch(() => props.open, (v) => {
   if (v) document.addEventListener('keydown', onKey)
   else document.removeEventListener('keydown', onKey)
