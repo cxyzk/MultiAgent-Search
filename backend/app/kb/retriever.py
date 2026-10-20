@@ -38,6 +38,7 @@ class BM25Retriever:
 
     K1 = 1.5
     B = 0.75
+    TITLE_WEIGHT = 3      # 标题 token 重复计入的份数：标题命中的片段更可能正是要的
 
     def __init__(self) -> None:
         self._chunks: list[dict] = []
@@ -59,7 +60,10 @@ class BM25Retriever:
         self._df = Counter()
         total_len = 0
         for cid, doc_id, content, title in rows:
-            tokens = tokenize(content)
+            # ★ 标题必须参与索引：正文常是代码/英文（如 C++ 示例），
+            #   中文信息只存在于标题里；只索引 content 会导致"搜标题搜不到"。
+            #   标题重复计入（TITLE_WEIGHT 份），提升标题命中相对正文的权重。
+            tokens = tokenize(title) * self.TITLE_WEIGHT + tokenize(content)
             tf = Counter(tokens)
             total_len += len(tokens)
             for term in tf:

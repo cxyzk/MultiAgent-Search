@@ -56,7 +56,7 @@ class KBService:
                        Document.created_at, chunk_count)
                 .order_by(Document.created_at.desc()))
         rows = (await db.execute(stmt)).all()
-        return [{"id": i, "title": t, "source": s, "created_at": str(c), "chunks": n}
+        return [{"id": i, "title": t, "source": s, "created_at": str(c), "chunk_count": n}
                 for i, t, s, c, n in rows]
 
     @staticmethod
