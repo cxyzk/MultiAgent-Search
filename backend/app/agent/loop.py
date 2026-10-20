@@ -150,6 +150,18 @@ async def run_tool_loop(
                 await on_message(tool_msg)  # ★ 补上这一行，tool 结果也落库
             await report({"type": "tool_result", "tool": tool_call.function.name})
 
+            # ★ 工具结果里带了 citations 就顺带推给前端（kb_search 专用）
+            try:
+                parsed = json.loads(result)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("citations"):
+                await report({
+                    "type": "citations",
+                    "tool": tool_call.function.name,
+                    "items": parsed["citations"],
+                })
+
     # 超过最大轮数：不带 tools 再调一次，强制模型基于已有信息收尾
     content, _, _ = await _call_model(messages, None, on_token)
     if on_message:
