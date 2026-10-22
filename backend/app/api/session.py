@@ -33,6 +33,7 @@ class RenameBody(BaseModel):
     title: str
 @router.patch("/session/{session_id}")
 async def rename_session(session_id:str,body:RenameBody,db: AsyncSession = Depends(get_db)):
+    '''重命名会话'''
     await session_service.rename_session(session_id=session_id, db=db, title=body.title)
     return {"ok": True}
 
