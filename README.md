@@ -20,6 +20,7 @@
 - **任务状态追踪**：每次提交在 `tasks` 表留档（`running → done / error / interrupted`，含错误原因与耗时）；进程重启时残留任务自动标记中断；前端"思考中"判定基于任务状态而非猜测
 - **时效性搜索**：两个智能体的 prompt 注入当天日期；时事类查询走 Tavily 新闻索引（`topic=news` + `days` 过滤），结果携带 `published_date`
 - **评测集**：断言调度行为与回答质量，支持单轮/多轮用例，报告存档供版本间 diff
+- **自动化测试**：`pytest` 覆盖关键路径（会话 CRUD / 重命名持久化 / 任务状态流转 / 知识库上传检索 / SSE 生成器与队列），GitHub Actions 跑 CI——**测试防回归、评测量质量**，两者分工不同
 - **实时过程可视化**：调度决策、工具执行、最终回答通过 SSE 逐条推送（token 级流式），前端日志式呈现、断线自动重连
 - **统一循环引擎**：所有智能体复用同一个 tool-calling 循环（`run_tool_loop`），新增子智能体只需一份三元组配置
 - **聊天式前端**：Vue3 + TypeScript，Markdown 渲染 + 代码语法高亮
@@ -203,11 +204,12 @@ SSE 的"永不结束的响应"这一特性，在迁移中踩了两个坑：
 
 ## 工程习惯笔记
 
-重构过程中被真实事故训练出来的三条习惯：
+重构与测试过程中被真实事故训练出来的四条习惯：
 
 - **跨文件改名/搬家：改完必搜**——Python 无编译期检查，漏改的调用点只会在运行时爆（`AttributeError`）；用 IDE 的 Rename（`Shift+F6`）自动扫全项目，或改完 `grep -rn "旧名"` 一遍
 - **提交前"三连"**——`git status`（看清范围，特别留意 `??` 未跟踪文件）；`git diff --cached --stat`（确认暂存区恰好只装当前主题）；分主题提交时用 `git restore --staged` 撤出不属于本主题的改动
 - **重构的验证网**——`grep` 残留 → `import` 冒烟 → 静态检查（mypy）→ 端到端跑一条真实链路；四层各自拦截不同级别的错误（引用残留 / 启动失败 / 属性不存在 / 行为回归）
+- **测试分层**——单元（生成器 / 队列 / 纯函数，快而稳）→ 集成（`ASGITransport` + 短请求，验 API 契约）→ e2e（真实浏览器 / 进程，验长连接与交互）；"测不了"往往不是写错了，是**这一层不该用这种工具测**
 
 ## 评测集
 
@@ -246,6 +248,8 @@ pip install -r requirements.txt
 copy .env.example .env                            # 填入 LLM 与 Tavily 的 key
 python -c "import sqlite3; sqlite3.connect('app.db').executescript(open('../docs/init.sql', encoding='utf-8').read())"   # 手动建表（schema 见 docs/init.sql）
 python run.py                                     # 服务起在 :8001
+pip install -r requirements-dev.txt               # 测试依赖（pytest / pytest-asyncio）
+python -m pytest                                  # 跑测试（独立 test.db，不碰 app.db）
 
 # 前端（Node 18+）
 cd frontend
@@ -310,9 +314,10 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 
 ## 技术栈
 
-- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / python-multipart（文件上传） / PyYAML（评测用例）
+- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / python-multipart（文件上传） / PyYAML（评测用例） / pytest + pytest-asyncio（测试）
 - **前端**：Vue3（script setup）/ TypeScript / Vite / axios + EventSource / marked + highlight.js + DOMPurify
 - **代码分层**：`api`（HTTP 适配：路由与回执）→ `service`（会话 / 任务 / SSE / 知识库业务）→ `db`（模型与引擎）；agent 循环、叶子工具、检索器独立成包
+- **CI**：GitHub Actions（push / PR 自动跑 pytest）
 - **无 agent 框架依赖**：tool-calling 循环、多智能体编排、上下文隔离、BM25 检索均为手写实现
 
 ## 项目结构
@@ -328,6 +333,7 @@ backend/
     db/           models / session（引擎与 get_db）
     core/         config（pydantic-settings）
   evals/          评测：runner + cases.yml + results/
+  tests/          pytest：conftest（隔离库 / client / mock agent）+ 会话 / 任务 / 知识库 / SSE
 frontend/
   src/
     api/          index（axios 实例）/ session / kb
@@ -350,6 +356,7 @@ docs/
 - [x] **知识库 RAG**：文档上传 / 切分 / BM25 检索 / 引用回显（`kb_search` 工具）
 - [x] **移动端适配**：响应式抽屉布局、安全区、触摸交互
 - [x] **接口契约文档**：前后端字段级对照 + 时序图
+- [x] **自动化测试与 CI**：pytest 覆盖关键路径（独立测试库 + mock LLM），GitHub Actions 自动运行
 - [ ] Embedding 检索器（`Retriever` Protocol 已预留，`chunks.embedding` 字段待启用）
 - [ ] 知识库升级为 `kb_agent`：query 改写 / 多跳检索 / rerank 融合
 - [ ] 中文分词换 `jieba`（当前 2-gram 会产生 `存的`/`的双` 这类噪声 token）
