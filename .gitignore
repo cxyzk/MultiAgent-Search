@@ -33,3 +33,4 @@ Desktop.ini
 /backend/app.db-wal
 /docs/problem.md
 /docs/api-contract.md
+/backend/test_embedding.py

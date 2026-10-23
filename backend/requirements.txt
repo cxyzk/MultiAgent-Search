@@ -7,6 +7,7 @@ httpx==0.28.1
 sqlalchemy==2.0.35
 aiosqlite==0.20.0
 python-multipart==0.0.32
+numpy==2.5.3
 pyyaml
 
 
