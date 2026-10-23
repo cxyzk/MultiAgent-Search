@@ -24,7 +24,7 @@ KB_SEARCH_TOOL_SCHEMA = {
 }
 
 async def kb_search(query: str, top_k: int = 5) -> dict:
-    hits = await get_retriever.search(query, top_k)
+    hits = await get_retriever().search(query, top_k)
 
     if not hits:
         # ★ 关键：明确告诉模型“没查到”，它才会去调 search_agent 或如实说不知道

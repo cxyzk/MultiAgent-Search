@@ -1,8 +1,11 @@
 from openai import AsyncOpenAI
 from app.core.config import settings
 import json,asyncio
+import logging
 from typing import Awaitable, Callable, Any
 from types import SimpleNamespace
+
+logger = logging.getLogger(__name__)
 
 MAX_ROUNDS = 8
 
@@ -32,6 +35,8 @@ async def execute_tool(tool_call, tool_map: dict) -> str:
         result = await func(**args) if func else {"error": f"未知工具：{func_name}"}
     except Exception as e:
         # 工具崩了要把错误回填给模型让它自己决定下一步，而不是炸掉整个请求
+        # 同时记日志：错误回填给模型后前端只看到"工具失败"，终端也不再可见
+        logger.warning("工具 %s 执行失败: %s: %s", func_name, type(e).__name__, e)
         result = {"error": f"工具 {func_name} 执行失败：{type(e).__name__}: {e}"}
     return json.dumps(result, ensure_ascii=False)
 

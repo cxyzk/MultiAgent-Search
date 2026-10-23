@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.kb.retriever import bm25_retriever
+from app.kb.factory import get_retriever
 from app.service.kb_service import kb_service
 import os
 from pydantic import BaseModel
@@ -77,7 +77,7 @@ class SearchRequest(BaseModel):
 @router.post("/kb/search")
 async def search_documents(req: SearchRequest):
      """检索调试：不经过 agent，直接看命中排序"""
-     hits = await bm25_retriever.search(req.query, req.top_k)
+     hits = await get_retriever().search(req.query, req.top_k)
      return {"query": req.query, "hits": hits}
 
 
