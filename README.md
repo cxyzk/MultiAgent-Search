@@ -9,10 +9,11 @@
 - **多智能体调度**：主智能体分析请求，决定调度哪个子智能体（可并发多个），汇总结果作答
   - `search_agent`：联网搜索（Tavily API，时事查询走新闻索引并按天数过滤）
   - `weather_agent`：天气查询（Open-Meteo API，无需 key）
-- **知识库 RAG**：上传 `.txt` / `.md` 或粘贴文本，切块入库后用 BM25 检索，命中片段带引用回显
+- **知识库 RAG**：上传 `.txt` / `.md` 或粘贴文本，切块入库后检索，命中片段带引用回显
+  - **三种检索模式可切换**（`RETRIEVER` 环境变量）：`bm25` 关键词 / `embedding` 语义 / `hybrid`（RRF 融合两路召回）
   - `kb_search` 是**主智能体的普通工具**，不是子智能体——检索是确定性调用，不需要模型内部多轮决策
-  - 零依赖 BM25 实现（纯 Python），索引常驻内存、文档变更后懒重建
-  - 中文 2-gram + 英文分词，**标题参与索引**（正文是代码时唯一的中文线索）
+  - BM25 零依赖手写（纯 Python）；向量检索用 `BAAI/bge-m3`（1024 维），内存矩阵 + 余弦相似度，10 万 chunk 单次检索仍 <10ms
+  - 中文 2-gram + 英文分词，**标题参与索引**；向量入库同样拼接标题（正文是代码时唯一的中文线索）
 - **移动端适配**：响应式布局，`≤768px` 时侧边栏变抽屉、聊天区全屏，适配刘海屏安全区与 iOS 键盘
 - **会话持久化**：会话与消息落盘 SQLite（SQLAlchemy 2.0 async + aiosqlite）。存储侧保留**全量轨迹**（assistant 中间轮 / tool 调用结果 / 最终回答，逐条增量落库），回填侧只喂**文本轮**（用户提问 + 最终回答），工具噪音不进上下文
 - **多轮对话**：主智能体带上下文理解追问（"那上海呢？"），历史跨服务重启、页面刷新均可恢复；子智能体保持无状态、拿到的 query 永远自包含
@@ -37,7 +38,7 @@ graph TB
     MA -->|普通工具调用| KS[kb_search]
     SA -->|tavily_search| TV[Tavily API]
     WA -->|get_weather| OM[Open-Meteo API]
-    KS -->|BM25 检索| KB[(chunks 索引)]
+    KS -->|检索 BM25 / 向量 / 混合| KB[(chunks 索引)]
     API <-->|回填历史 / 会话管理 / 任务状态 / 知识库 CRUD| DB[(SQLite)]
     MA -.->|on_message 钩子：全量轨迹落库| DB
     API -->|progress / tool_result / citations / token / result 事件| FE
@@ -94,7 +95,7 @@ graph TB
 
 ## 知识库 RAG
 
-上传文档 → 切块 → 入库 → 检索。检索器对外只有一个 `Retriever` Protocol（`search(query, top_k)`），当前实现是零依赖的 BM25，v2 换 embedding 不影响调用方。
+上传文档 → 切块 → 入库 → 检索。检索器对外只有一个 `Retriever` Protocol（`search(query, top_k)`），目前有三个实现（BM25 / 向量 / 混合），通过 `RETRIEVER` 环境变量切换，调用方（`kb_search` 工具与 `/kb/search` 接口）零改动。
 
 ### 为什么 RAG 是工具而不是子智能体
 
@@ -109,7 +110,7 @@ graph TB
 三条具体理由：
 
 1. **信息损耗**：子 agent 拿到 5 条 chunk 要先读一遍、再总结一遍，主 agent 再总结一遍——三次总结，而 RAG 要的恰恰是**原文照搬**
-2. **信号量死锁风险**：`loop.py` 的 `tool_semaphore` 是模块级全局的，子 agent 嵌套会多占一个名额
+2. **并发与进度更直接**：工具并发由每个 agent 自己的信号量控制（`run_tool_loop` 内创建，每 agent 3 个名额）；做成子 agent 则多一层"父调子"的嵌套等待，进度也不透传（见第 3 点）
 3. **进度不可见**：子 agent 不透传 `on_progress`，内部轮次前端看不到；做成工具则 `kb_search` 直接出现在 SSE `progress` 里
 
 **升级路径是无痛的**：工具名和 schema 都不变，只把 `tool_map["kb_search"]` 从函数换成 `run_kb_agent`，主 prompt 和前端零改动。何时才该升级：需要 query 改写 / 多跳检索、rerank + 多路召回融合、或要塞几十个片段只回传结论。
@@ -117,9 +118,18 @@ graph TB
 ### 切分与检索
 
 - **切分**（`chunker.py`）：按行聚合成 ~500 字的块，相邻块保留 50 字重叠——防止答案正好卡在切割线上
-- **分词**（`retriever.py`）：英文按单词、中文 2-gram，纯正则无依赖
-- **索引**：`tokens = tokenize(title) * 3 + tokenize(content)`，标题重复计入 3 份做温和加权
-- **懒重建**：`mark_dirty()` 只打标记，下次 `search` 才重建；进程重启后首次检索自动重建
+- **文本构造**：入库时把 `标题 + 正文` 一起索引/编码——正文常是代码，标题是唯一的中文线索
+- **三种检索器**（`Retriever` Protocol，`RETRIEVER` 切换）：
+
+  | 模式 | 实现 | 特点 |
+  |---|---|---|
+  | `bm25` | 手写 BM25（纯 Python） | 零依赖；英文按词、中文 2-gram；精确关键词命中强 |
+  | `embedding` | `BAAI/bge-m3` 向量（硅基流动，1024 维） | 语义近似可召回（问"语义搜索"能命中"向量检索"）；内存矩阵 + 余弦，暴力全量 |
+  | `hybrid` | BM25 + 向量两路，RRF 融合 | 关键词与语义互补；两路都认可的结果排最前 |
+
+- **索引**：BM25 用内存倒排（tf/df），向量用内存矩阵；文档变更 `mark_dirty`，下次 `search` 懒重建
+- **不硬凑**：BM25 要求 `score > 0`、向量要求余弦 `≥ 0.3`，不相关查询返回空
+- **降级**：embedding 调用失败（网络 / 429）不阻塞入库——该文档退化为 BM25 可检索，之后可跑 `scripts/reindex_embeddings.py` 补向量
 
 ### 踩过的坑：只索引 content 导致"搜标题搜不到"
 
@@ -264,6 +274,8 @@ npm run dev                                       # 页面起在 :5173，/api �
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 任意 OpenAI 兼容模型（DeepSeek / 通义均实测可用） |
 | `TAVILY_API_KEY` | 联网搜索用，[tavily.com](https://tavily.com) 免费档每月 1000 次 |
 | `DB_URL` | SQLite 连接串，默认 `sqlite+aiosqlite:///./app.db`（相对 backend 启动目录） |
+| `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 向量检索（硅基流动 `BAAI/bge-m3`）；不配则自动退化为纯 BM25 |
+| `RETRIEVER` | 检索模式：`bm25`（默认）/ `embedding` / `hybrid` |
 
 ### 手机访问（同一局域网）
 
@@ -285,10 +297,12 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 
 1. 点侧边栏「📚 知识库」打开抽屉
 2. 上传 `.txt` / `.md`（≤5MB，UTF-8）或粘贴文本
-3. 点文档可展开查看切分结果，也可用「检索调试」直接看 BM25 命中排序
+3. 点文档可展开查看切分结果，也可用「检索调试」直接看当前检索器的命中排序
 4. 回到聊天，问库内相关内容即可——主智能体会自动调 `kb_search`，回答下方可展开「参考片段」
 
 > 首先生效需要索引重建：上传/删除后会自动标记脏，下次检索时重建，无需手动操作。
+>
+> 启用向量模式时：新上传的文档会自动向量化；**存量文档**跑一次 `python scripts/reindex_embeddings.py` 补齐。
 
 ## API 一览
 
@@ -307,18 +321,18 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 | `GET` | `/api/kb/documents` | 文档列表（含 `chunk_count`） |
 | `GET` | `/api/kb/documents/{id}` | 文档详情（含全部分块内容） |
 | `DELETE` | `/api/kb/documents/{id}` | 删除文档（分块级联清理） |
-| `POST` | `/api/kb/search` | 检索调试（不经过 agent，直接看 BM25 命中排序） |
+| `POST` | `/api/kb/search` | 检索调试（不经过 agent，直接看当前检索器的命中排序） |
 | `GET` | `/health` | 健康检查（**不在 `/api` 前缀下**） |
 
 > ⚠️ 两个易错点：`/kb/search` 是 **POST + JSON** 不是 GET；上传用 `FormData` 时**不要手动设 `Content-Type`**，否则没有 boundary 会 422。
 
 ## 技术栈
 
-- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / python-multipart（文件上传） / PyYAML（评测用例） / pytest + pytest-asyncio（测试）
+- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / numpy（向量检索） / python-multipart（文件上传） / PyYAML（评测用例） / pytest + pytest-asyncio（测试）
 - **前端**：Vue3（script setup）/ TypeScript / Vite / axios + EventSource / marked + highlight.js + DOMPurify
 - **代码分层**：`api`（HTTP 适配：路由与回执）→ `service`（会话 / 任务 / SSE / 知识库业务）→ `db`（模型与引擎）；agent 循环、叶子工具、检索器独立成包
 - **CI**：GitHub Actions（push / PR 自动跑 pytest）
-- **无 agent 框架依赖**：tool-calling 循环、多智能体编排、上下文隔离、BM25 检索均为手写实现
+- **无 agent 框架依赖**：tool-calling 循环、多智能体编排、上下文隔离、BM25 检索与 RRF 融合均为手写实现
 
 ## 项目结构
 
@@ -329,7 +343,7 @@ backend/
     service/      业务层：session / task / sse / kb
     agent/        loop（统一循环引擎）/ main_agent / search_agent / weather_agent
     tools/        叶子工具：tavily_search / weather / kb_search
-    kb/           chunker（切分）/ retriever（BM25）
+    kb/           chunker（切分）/ retriever（BM25）/ embedding_retriever / hybrid_retriever / retriever_factory / embedding（批量向量化）
     db/           models / session（引擎与 get_db）
     core/         config（pydantic-settings）
   evals/          评测：runner + cases.yml + results/
@@ -357,7 +371,7 @@ docs/
 - [x] **移动端适配**：响应式抽屉布局、安全区、触摸交互
 - [x] **接口契约文档**：前后端字段级对照 + 时序图
 - [x] **自动化测试与 CI**：pytest 覆盖关键路径（独立测试库 + mock LLM），GitHub Actions 自动运行
-- [ ] Embedding 检索器（`Retriever` Protocol 已预留，`chunks.embedding` 字段待启用）
+- [x] **Embedding 检索器与混合检索**：bge-m3 向量 + RRF 融合，`RETRIEVER` 三模式切换
 - [ ] 知识库升级为 `kb_agent`：query 改写 / 多跳检索 / rerank 融合
 - [ ] 中文分词换 `jieba`（当前 2-gram 会产生 `存的`/`的双` 这类噪声 token）
 - [ ] 代码执行子智能体（Docker 沙箱）
