@@ -2,8 +2,11 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 import json,asyncio
 import logging
+import time
 from typing import Awaitable, Callable, Any
 from types import SimpleNamespace
+
+from app.service.usage_service import record_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +49,15 @@ async def run_tool(tool_call,tool_map,tool_semaphore)->tuple[Any, str]:
      return tool_call, await execute_tool(tool_call, tool_map)
 
 
-async def _call_model(messages, tools, on_token):
+async def _call_model(messages, tools, on_token, agent_name: str = "agent"):
     """调一次 LLM，返回 (content, tool_calls, 放回 messages 用的 assistant 消息)。
 
     on_token 非空时走流式：content 增量实时转发给调用方，
     tool_calls 的增量碎片按 index 分桶拼装。
+    每次调用都会把 token 用量/耗时记到 llm_calls 表（观测失败不影响主流程）。
     """
+    started_at = time.perf_counter()
+
     if on_token is None:
         resp=await client.chat.completions.create(
             model=settings.llm_model,
@@ -59,6 +65,8 @@ async def _call_model(messages, tools, on_token):
             **({"tools": tools, "tool_choice": "auto"} if tools else {}),
         )
         msg = resp.choices[0].message
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        await record_llm_call(agent_name=agent_name, usage=resp.usage, latency_ms=latency_ms)
         return msg.content, msg.tool_calls, msg
     content_parts: list[str] = []
     #工具拼装
@@ -69,8 +77,12 @@ async def _call_model(messages, tools, on_token):
         messages=messages,
         **({"tools": tools, "tool_choice": "auto"} if tools else {}),
         stream=True,
+        stream_options={"include_usage": True},   # ★ 让最后一个 chunk 带 usage
     )
+    last_usage = None
     async for chunk in stream:
+        if getattr(chunk, "usage", None):          # ★ 先捕获（这个 chunk 的 choices 是空的）
+            last_usage = chunk.usage
         if not chunk.choices:
             continue  # 某些服务商最后一个 chunk 的 choices 是空的
         delta = chunk.choices[0].delta
@@ -87,6 +99,9 @@ async def _call_model(messages, tools, on_token):
                 slot["arguments"] += tc.function.arguments  # 累加，不是覆盖！
 
     content = "".join(content_parts)
+    latency_ms = int((time.perf_counter() - started_at) * 1000)
+    await record_llm_call(agent_name=agent_name, usage=last_usage, latency_ms=latency_ms)
+
     tool_calls = [
         SimpleNamespace(id=s["id"],
                         function=SimpleNamespace(name=s["name"], arguments=s["arguments"]))
@@ -123,7 +138,9 @@ async def run_tool_loop(
         + [{"role": "user", "content": query}]
     )
     for round_i in range(MAX_ROUNDS):
-        content, tool_calls, assistant_msg = await _call_model(messages, tools, on_token)
+        content, tool_calls, assistant_msg = await _call_model(
+            messages, tools, on_token, agent_name=agent_name
+        )
         messages.append(assistant_msg)  # 必须把 assistant 的 tool_calls 消息加进去
         if on_message:
             await on_message(assistant_msg)

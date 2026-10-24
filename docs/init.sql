@@ -44,3 +44,21 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_chunk_doc ON chunks(document_id);
 
+
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        VARCHAR(64),
+    task_id           VARCHAR(64),
+    agent_name        VARCHAR(64)  NOT NULL,
+    model             VARCHAR(128) NOT NULL,
+    prompt_tokens     INTEGER      NOT NULL DEFAULT 0,
+    completion_tokens INTEGER      NOT NULL DEFAULT 0,
+    cache_hit_tokens  INTEGER      NOT NULL DEFAULT 0,
+    reasoning_tokens  INTEGER      NOT NULL DEFAULT 0,
+    latency_ms        INTEGER      NOT NULL DEFAULT 0,
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_llm_calls_session_id ON llm_calls (session_id);
+CREATE INDEX IF NOT EXISTS ix_llm_calls_task_id    ON llm_calls (task_id);
+

@@ -4,6 +4,8 @@ from sqlalchemy import select, update
 from app.service.session_service import session_service
 from app.agent.main_agent import run_main_agent
 from app.service.sse_service import sse_service
+from app.core.context import current_task
+from app.service.usage_service import summarize_task_usage
 from datetime import datetime
 
 from app.db.models import Task
@@ -11,6 +13,8 @@ from app.db.models import Task
 class TaskService:
     @staticmethod
     async def job(req,task_id,on_progress,on_token,on_message) -> None:
+        # 把 session/task 放进请求上下文：深层 LLM 调用据此记录归属（并行任务互不串）
+        ctx_token = current_task.set({"session_id": req.session_id, "task_id": task_id})
         try:
             async with SessionLocal() as db:
                 # ① 读【旧】历史（此时本次提问还没落库）
@@ -27,13 +31,16 @@ class TaskService:
             async with SessionLocal() as db:
                 await task_service.finish_task(task_id, db, "done")
 
-            # ④ 只推送，不再落库（原来的 append(assistant) 删掉）
-            await sse_service.push(req.session_id, {"type": "result", "task_id": task_id, "content": result})
+            # ④ 只推送，不再落库（原来的 append(assistant) 删掉）；附上本任务的用量汇总
+            usage = await summarize_task_usage(task_id)
+            await sse_service.push(req.session_id, {"type": "result", "task_id": task_id, "content": result, "usage": usage})
         except Exception as e:
             async with SessionLocal() as db:
                 await task_service.finish_task(task_id, db, "error", error=str(e))  # ★ 补上这两行
             # 后台任务的异常没人接，必须自己兜住推给前端，否则前端永远干等
             await sse_service.push(req.session_id, {"type": "error", "task_id": task_id, "error": str(e)})
+        finally:
+            current_task.reset(ctx_token)   # ★ 复位，避免上下文泄漏到后续任务
 
     @staticmethod
     async def create_task(task_id: str, db: AsyncSession, session_id: str, query: str) -> None:

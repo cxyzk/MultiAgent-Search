@@ -2,25 +2,27 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, Index, String, Text, LargeBinary
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+
 class Base(DeclarativeBase):
     pass
+
 
 class Session(Base):
     """会话：title 取首条用户消息，供侧边栏展示"""
     __tablename__ = "sessions"
-    #uuid生成的会话id
-    id:Mapped[str]=mapped_column(String(64),primary_key=True)
-    title:Mapped[str]=mapped_column(String(64),default='')
-    created_at:Mapped[datetime]=mapped_column(default=datetime.now)
-    updated_at:Mapped[datetime]=mapped_column(default=datetime.now)
+    # uuid生成的会话id
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(64), default='')
+    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
 
 class Message(Base):
     __tablename__ = "messages"
-    id:Mapped[int]=mapped_column(primary_key=True,autoincrement=True)
-    session_id:Mapped[str]=mapped_column(String(64),ForeignKey("sessions.id",ondelete="CASCADE"))
-    role:Mapped[str]=mapped_column(String(16))
-    content:Mapped[str]=mapped_column(Text)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), ForeignKey("sessions.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
     tool_calls: Mapped[str | None] = mapped_column(Text)
     tool_call_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
@@ -45,22 +47,36 @@ class Task(Base):
     __table_args__ = (Index("idx_task_session", "session_id", "created_at"),)
 
 
-
 class Document(Base):
     """知识库文档"""
     __tablename__ = "documents"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    title:Mapped[str]=mapped_column(String(256))
-    source:Mapped[str | None]=mapped_column(String(256))
+    title: Mapped[str] = mapped_column(String(256))
+    source: Mapped[str | None] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
 
 class Chunk(Base):
     __tablename__ = "chunks"
-    id:Mapped[int]=mapped_column(primary_key=True,autoincrement=True)
-    document_id:Mapped[str]=mapped_column(String(64),ForeignKey("documents.id",ondelete="CASCADE"))
-    seq:Mapped[int]=mapped_column()
-    content:Mapped[str]=mapped_column(Text)
-    embedding:Mapped[bytes | None]=mapped_column(LargeBinary)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    document_id: Mapped[str] = mapped_column(String(64), ForeignKey("documents.id", ondelete="CASCADE"))
+    seq: Mapped[int] = mapped_column()
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary)
 
     __table_args__ = (Index("idx_chunk_doc", "document_id"),)
+
+
+class LlmCall(Base):
+    __tablename__ = "llm_calls"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    task_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    agent_name: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    prompt_tokens: Mapped[int] = mapped_column(default=0)
+    completion_tokens: Mapped[int] = mapped_column(default=0)
+    cache_hit_tokens: Mapped[int] = mapped_column(default=0)
+    reasoning_tokens: Mapped[int] = mapped_column(default=0)
+    latency_ms: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.now)
