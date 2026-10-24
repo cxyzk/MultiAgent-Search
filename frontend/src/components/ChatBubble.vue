@@ -5,8 +5,18 @@
           v-if="msg.kind === 'assistant'"
           class="bubble bubble-assistant markdown-body"
           v-html="renderedHtml"
+          @click="onContentClick"
       ></div>
       <div v-else class="bubble" :class="'bubble-' + msg.kind">{{ msg.text }}</div>
+
+      <!-- 用量统计：仅 assistant 最终回答带，一行灰色小字 -->
+      <div v-if="msg.kind === 'assistant' && msg.usage" class="usage-line">
+        {{ msg.usage.calls }} 次调用 · {{ formatTokens(msg.usage.total_tokens) }} tokens
+        · LLM {{ (msg.usage.llm_latency_ms / 1000).toFixed(1) }}s
+        <span v-if="msg.usage.cache_hit_tokens > 0">
+          · 缓存命中 {{ formatTokens(msg.usage.cache_hit_tokens) }}
+        </span>
+      </div>
 
       <!-- 知识库引用：仅当后端推过 citations 才出现，默认折叠 -->
       <div v-if="msg.kind === 'assistant' && msg.citations?.length" class="citations">
@@ -29,7 +39,6 @@
 <script setup lang="ts">
 import {computed, ref} from 'vue'
 import {Marked} from 'marked'
-import {markedHighlight} from 'marked-highlight'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
 import type {ChatMessage} from '../types/types'
@@ -39,17 +48,119 @@ const props = defineProps<{ msg: ChatMessage }>()
 // 引用列表的展开状态，每条消息独立
 const open = ref(false)
 
-// Markdown 渲染管线：语法高亮 -> 转 HTML -> DOMPurify 消毒
-const md = new Marked(
-    markedHighlight({
-      langPrefix: 'hljs language-',
-      highlight(code, lang) {
-        return lang && hljs.getLanguage(lang)
-            ? hljs.highlight(code, {language: lang}).value
-            : hljs.highlightAuto(code).value   // 模型没标语言时自动探测
-      },
-    }),
-)
+/** 1234 → "1.2k"；不足千直接显示 */
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
+// ===== 代码块工具栏：语言标签 + 复制 / 下载 =====
+
+// 下载时的文件扩展名（只影响下载文件名，未知语言回落 txt）
+const CODE_EXT: Record<string, string> = {
+  python: 'py', py: 'py',
+  javascript: 'js', js: 'js',
+  typescript: 'ts', ts: 'ts',
+  bash: 'sh', shell: 'sh', sh: 'sh',
+  json: 'json', sql: 'sql', html: 'html', css: 'css',
+  java: 'java', cpp: 'cpp', c: 'c', go: 'go', rust: 'rs',
+  yaml: 'yml', markdown: 'md', md: 'md',
+}
+
+/** 生成"工具栏 + 代码体"的 HTML（由自定义 renderer 调用） */
+function buildCodeBlock(language: string, highlightedHtml: string): string {
+  // 语言名来自模型输出，拼进 HTML 前只保留安全字符
+  const label = (language || 'text').replace(/[^\w#+.-]/g, '') || 'text'
+  return (
+      `<div class="code-block">` +
+      `<div class="code-toolbar">` +
+      `<span class="code-lang">${label}</span>` +
+      `<span class="code-actions">` +
+      `<button type="button" class="code-btn code-copy">复制</button>` +
+      `<button type="button" class="code-btn code-download">下载</button>` +
+      `</span>` +
+      `</div>` +
+      `<pre><code class="hljs language-${label}">${highlightedHtml}</code></pre>` +
+      `</div>`
+  )
+}
+
+/** 复制到剪贴板：安全上下文用 Clipboard API，HTTP（手机局域网）降级 execCommand */
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 落到下面的降级路径
+    }
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  return ok
+}
+
+/** 按钮临时反馈（"已复制"），1.5 秒后复原 */
+function flashButton(button: HTMLButtonElement, text: string): void {
+  const original = button.textContent ?? ''
+  button.textContent = text
+  button.classList.add('done')
+  window.setTimeout(() => {
+    button.textContent = original
+    button.classList.remove('done')
+  }, 1500)
+}
+
+/** 下载代码片段，文件名按语言给扩展名 */
+function downloadCode(code: string, language: string): void {
+  const extension = CODE_EXT[language] ?? 'txt'
+  const blob = new Blob([code], {type: 'text/plain;charset=utf-8'})
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `snippet.${extension}`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+/** v-html 渲染的按钮不在 Vue 响应式里 → 事件委托统一处理 */
+async function onContentClick(event: MouseEvent): Promise<void> {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button.code-btn')
+  if (!button) return
+
+  const block = button.closest('.code-block')
+  const codeElement = block?.querySelector('pre code')
+  if (!codeElement) return
+
+  const code = codeElement.textContent ?? ''
+  const language = block?.querySelector('.code-lang')?.textContent?.trim() ?? ''
+
+  if (button.classList.contains('code-copy')) {
+    const ok = await copyToClipboard(code)
+    flashButton(button, ok ? '已复制' : '复制失败')
+  } else if (button.classList.contains('code-download')) {
+    downloadCode(code, language)
+  }
+}
+
+// Markdown 渲染管线：自定义 code 渲染（带工具栏）-> 语法高亮 -> DOMPurify 消毒
+const md = new Marked({
+  renderer: {
+    // marked v13+ 的签名是对象参数：{ text, lang, escaped }
+    code({text, lang}) {
+      const language = (lang || '').match(/\S*/)?.[0] ?? ''
+      const highlighted = language && hljs.getLanguage(language)
+          ? hljs.highlight(text, {language}).value
+          : hljs.highlightAuto(text).value   // 模型没标语言时自动探测
+      return buildCodeBlock(language, highlighted)
+    },
+  },
+})
 
 const renderedHtml = computed(() =>
     DOMPurify.sanitize(md.parse(props.msg.text) as string),
@@ -173,11 +284,64 @@ const renderedHtml = computed(() =>
 }
 
 /* 代码块容器：纯白底 + 细灰边 + 圆角 */
-.markdown-body :deep(pre) {
-  background: #f6f8fa;
+/* ===== 代码块：工具栏（语言 + 复制/下载）+ 代码体 =====
+   注意：这些元素是 v-html 注入的，没有 scoped 的 data-v 属性，
+   必须用 :deep() 穿透，否则样式不生效 */
+.markdown-body :deep(.code-block) {
+  margin: 8px 0;
   border-radius: 8px;
+  overflow: hidden;            /* 圆角裁切工具栏与代码体 */
+  background: #f6f8fa;
+}
+
+.markdown-body :deep(.code-toolbar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  /* 与代码块背景一致（继承 .code-block 的 #f6f8fa），保留为透明即可 */
+  background: transparent;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.markdown-body :deep(.code-lang) {
+  font-family: Consolas, monospace;
+  text-transform: lowercase;
+}
+
+.markdown-body :deep(.code-actions) {
+  display: flex;
+  gap: 2px;
+}
+
+.markdown-body :deep(.code-btn) {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.markdown-body :deep(.code-btn:hover) {
+  background: rgba(15, 23, 42, 0.07);
+  color: #111827;
+}
+.markdown-body :deep(.code-btn.done) {
+  color: #16a34a;
+}
+
+.markdown-body :deep(pre) {
+  background: transparent;     /* 背景/圆角交给 .code-block（工具栏与代码体共用一块底） */
+  border-radius: 0;
+  margin: 0;
   padding: 0;
   overflow-x: auto;
+  /* ★ 必须显式关闭纵向：overflow-x 设为 auto 时，overflow-y 的 visible 会被
+     计算成 auto（CSS 规范），代码块高度差 1px 就会冒出竖滚动条 */
+  overflow-y: hidden;
 }
 
 /* 块内代码：透明底，颜色全部交给高亮主题 */
@@ -296,6 +460,12 @@ const renderedHtml = computed(() =>
     padding: 10px 12px;
   }
 
+  /* 工具栏按钮：手机上加大触摸区域 */
+  .markdown-body :deep(.code-btn) {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
   /* 行内代码同步缩小，和块代码保持比例 */
   .markdown-body :deep(code) {
     font-size: 12px;
@@ -315,5 +485,15 @@ const renderedHtml = computed(() =>
     overflow-x: auto;
     white-space: nowrap;
   }
+}
+
+/* 用量统计：assistant 回答下方的一行小字
+   用 .bubble-wrap 前缀提高特异性，避免被气泡/正文的颜色规则盖掉 */
+.bubble-wrap .usage-line {
+  display: block;
+  margin: 4px 4px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #9ca3af;
 }
 </style>

@@ -32,6 +32,7 @@ body {
 
 .dlg {
     width: 340px;
+    max-width: calc(100vw - 32px);   /* 小屏手机不溢出 */
     padding: 20px;
     background: #fff;
     border-radius: 14px;

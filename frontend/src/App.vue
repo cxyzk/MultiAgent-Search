@@ -67,6 +67,7 @@
       <Teleport to="body">
         <div
             v-if="menu.visible"
+            ref="menuEl"
             class="context-menu"
             role="menu"
             :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
@@ -187,7 +188,7 @@
 import {ref, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
 import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
 import type {SessionItem, TaskItem} from './api/session'
-import type {ChatMessage, Citation, ServerEvent} from './types/types'
+import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
 import KbPanel from './components/KbPanel.vue'
@@ -239,6 +240,9 @@ const menu = ref<{ visible: boolean; x: number; y: number; session: SessionItem 
   session: null,
 })
 
+// 菜单 DOM：渲染后量实际尺寸再做位置校正（手机上防止菜单超出屏幕）
+const menuEl = ref<HTMLElement | null>(null)
+
 
 function closeMenu(): void {
   menu.value.visible = false
@@ -251,18 +255,42 @@ import PromptDialog from './components/PromptDialog.vue'
 const renameDialog = ref<{ open: boolean; session: SessionItem | null }>({open: false, session: null})
 const deleteDialog = ref<{ open: boolean; session: SessionItem | null }>({open: false, session: null})
 
-function toggleMenu(event: MouseEvent, session: SessionItem): void {
+async function toggleMenu(event: MouseEvent, session: SessionItem): Promise<void> {
   if (menu.value.visible && menu.value.session?.id === session.id) {
     menu.value.visible = false
     return
   }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  menu.value = {                                   // ★ ref 整体替换，响应式保持
+
+  const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const MARGIN = 8   // 距屏幕边缘的最小安全距离
+
+  // 先按"按钮下方左对齐"渲染，再测量实际宽高校正（菜单宽高随字体/内容变化，不能写死）
+  menu.value = {
     visible: true,
-    x: rect.left,
-    y: Math.min(rect.bottom + 4, window.innerHeight - 90),
+    x: anchor.left,
+    y: anchor.bottom + 4,
     session: session,
   }
+  await nextTick()
+  const menuElement = menuEl.value
+  if (!menuElement) return
+  const { width, height } = menuElement.getBoundingClientRect()
+
+  // 右边界：超出就往左收
+  let x = anchor.left
+  if (x + width > window.innerWidth - MARGIN) {
+    x = Math.max(MARGIN, window.innerWidth - width - MARGIN)
+  }
+
+  // 下方放不下：翻到按钮上方；上方也放不下：贴底边（保证整体可见）
+  let y = anchor.bottom + 4
+  if (y + height > window.innerHeight - MARGIN) {
+    const above = anchor.top - height - 4
+    y = above >= MARGIN ? above : window.innerHeight - height - MARGIN
+  }
+
+  menu.value.x = x
+  menu.value.y = y
 }
 
 
@@ -339,8 +367,8 @@ watch(sessionId, () => {
 })
 
 
-function push(kind: ChatMessage['kind'], text: string, citations?: Citation[]): void {
-  messages.value.push({id: Date.now() + Math.random(), kind, text, citations})
+function push(kind: ChatMessage['kind'], text: string, citations?: Citation[], usage?: UsageInfo): void {
+  messages.value.push({id: Date.now() + Math.random(), kind, text, citations, usage})
 }
 
 // 工具名 -> 中文标签，进度日志不再直接甩英文函数名
@@ -375,7 +403,7 @@ function handleEvent(msg: ServerEvent): void {
       streamingText.value += msg.delta
       break
     case 'result':
-      push('assistant', msg.content, pendingCitations.length ? pendingCitations : undefined)
+      push('assistant', msg.content, pendingCitations.length ? pendingCitations : undefined, msg.usage)
       pendingCitations = []
       streamingText.value = ''
       running.value = false
@@ -1233,6 +1261,12 @@ onUnmounted(() => {
   .sidebar .collapse-btn {
     width: 32px;
     height: 32px;
+  }
+
+  /* 移动端菜单项加大触摸区域（44px 左右是手指友好的下限） */
+  .menu-item {
+    padding: 11px 14px;
+    font-size: 14px;
   }
 }
 
