@@ -8,6 +8,7 @@ sqlalchemy==2.0.35
 aiosqlite==0.20.0
 python-multipart==0.0.32
 numpy==2.5.3
+tavily-python==0.8.5
 pyyaml
 
 

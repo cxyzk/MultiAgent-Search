@@ -1,4 +1,5 @@
-import httpx
+from tavily import AsyncTavilyClient
+
 from app.core.config import settings
 
 TAVILY_TOOL_SCHEMA = {
@@ -27,33 +28,38 @@ TAVILY_TOOL_SCHEMA = {
     },
 }
 
+# 惰性单例：复用底层连接池（每次请求新建 client 会反复重建连接）
+_client: AsyncTavilyClient | None = None
+
+
+def _get_client() -> AsyncTavilyClient:
+    global _client
+    if _client is None:
+        _client = AsyncTavilyClient(api_key=settings.tavily_api_key)
+    return _client
+
+
 async def tavily_search(
     query: str, topic: str = "general", days: int = 7, max_results: int = 3
 ) -> dict:
     # news 主题才有时效性过滤和 published_date 字段，general 传了也没用
-    payload: dict = {"query": query, "max_results": max_results}
+    kwargs: dict = {"query": query, "max_results": max_results}
     if topic == "news":
-        payload["topic"] = "news"
-        payload["days"] = days
+        kwargs["topic"] = "news"
+        kwargs["days"] = days
+
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.tavily.com/search",
-                headers={"Authorization": f"Bearer {settings.tavily_api_key}"},
-                json=payload,
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-            new_results = []
-            for result in results:
-                new_results.append(
-                    {
-                        "title": result.get("title", ""),
-                        "url": result.get("url", ""),
-                        "content": result.get("content", ""),
-                        "published_date": result.get("published_date", ""),
-                    }
-                )
-            return {"results": new_results}
-    except httpx.HTTPError as e:
-        return {"error": f"搜索服务请求失败：{e}"}
+        response = await _get_client().search(**kwargs)   # 官方 SDK 返回 dict
+    except Exception as e:
+        return {"error": f"搜索服务请求失败：{type(e).__name__}: {e}"}
+
+    results = response.get("results", [])
+    formatted: list[dict] = []
+    for result in results:
+        formatted.append({
+            "title": result.get("title", ""),
+            "url": result.get("url", ""),
+            "content": result.get("content", ""),
+            "published_date": result.get("published_date", ""),
+        })
+    return {"results": formatted}
