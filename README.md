@@ -9,11 +9,13 @@
 - **多智能体调度**：主智能体分析请求，决定调度哪个子智能体（可并发多个），汇总结果作答
   - `search_agent`：联网搜索（Tavily API，时事查询走新闻索引并按天数过滤）
   - `weather_agent`：天气查询（Open-Meteo API，无需 key）
-- **知识库 RAG**：上传 `.txt` / `.md` 或粘贴文本，切块入库后检索，命中片段带引用回显
-  - **三种检索模式可切换**（`RETRIEVER` 环境变量）：`bm25` 关键词 / `embedding` 语义 / `hybrid`（RRF 融合两路召回）
+- **知识库 RAG**：上传 `.md` / `.txt` / `.pdf` / `.html` 或粘贴文本，切块入库后检索，命中片段带引用回显
+  - **结构感知切分**：按 Markdown 标题分层（`heading_path` 进每块前缀）、**代码围栏整体成块**、保留缩进与空行——切分是地基，切坏了精排也救不回来
+  - **三种检索模式**（`RETRIEVER` 环境变量）：`bm25` 关键词 / `embedding` 语义 / `hybrid`（RRF 融合两路召回）
+  - **两阶段检索**（`RERANK_ENABLED`）：先多召回 20 条，再交给 `bge-reranker-v2-m3` 精排取 top_k——实测把"碰巧含关键词"的片段换成真正答案片段
+  - **查询改写**（`QUERY_REWRITE_ENABLED`）：口语化问题 → 1~3 条检索式，多路召回后按 `chunk_id` 合并
   - `kb_search` 是**主智能体的普通工具**，不是子智能体——检索是确定性调用，不需要模型内部多轮决策
-  - BM25 零依赖手写（纯 Python）；向量检索用 `BAAI/bge-m3`（1024 维），内存矩阵 + 余弦相似度，10 万 chunk 单次检索仍 <10ms
-  - 中文 2-gram + 英文分词，**标题参与索引**；向量入库同样拼接标题（正文是代码时唯一的中文线索）
+  - BM25 零依赖手写（纯 Python）；向量用 `BAAI/bge-m3`（1024 维，内存矩阵 + 余弦）；中文 2-gram + 英文分词，**标题参与索引**
 - **移动端适配**：响应式布局，`≤768px` 时侧边栏变抽屉、聊天区全屏，适配刘海屏安全区与 iOS 键盘
 - **会话持久化**：会话与消息落盘 SQLite（SQLAlchemy 2.0 async + aiosqlite）。存储侧保留**全量轨迹**（assistant 中间轮 / tool 调用结果 / 最终回答，逐条增量落库），回填侧只喂**文本轮**（用户提问 + 最终回答），工具噪音不进上下文
 - **多轮对话**：主智能体带上下文理解追问（"那上海呢？"），历史跨服务重启、页面刷新均可恢复；子智能体保持无状态、拿到的 query 永远自包含
@@ -22,6 +24,7 @@
 - **时效性搜索**：两个智能体的 prompt 注入当天日期；时事类查询走 Tavily 新闻索引（`topic=news` + `days` 过滤），结果携带 `published_date`
 - **评测集**：断言调度行为与回答质量，支持单轮/多轮用例，报告存档供版本间 diff
 - **自动化测试**：`pytest` 覆盖关键路径（会话 CRUD / 重命名持久化 / 任务状态流转 / 知识库上传检索 / SSE 生成器与队列），GitHub Actions 跑 CI——**测试防回归、评测量质量**，两者分工不同
+- **可观测性**：每次 LLM 调用落 `llm_calls` 表（prompt / completion / **缓存命中** / 耗时 / agent 名），按 task 汇总后随 `result` 事件推给前端——回答下方显示"2 次调用 · 1.2k tokens · LLM 2.0s"
 - **实时过程可视化**：调度决策、工具执行、最终回答通过 SSE 逐条推送（token 级流式），前端日志式呈现、断线自动重连
 - **统一循环引擎**：所有智能体复用同一个 tool-calling 循环（`run_tool_loop`），新增子智能体只需一份三元组配置
 - **聊天式前端**：Vue3 + TypeScript，Markdown 渲染 + 代码语法高亮
@@ -95,7 +98,7 @@ graph TB
 
 ## 知识库 RAG
 
-上传文档 → 切块 → 入库 → 检索。检索器对外只有一个 `Retriever` Protocol（`search(query, top_k)`），目前有三个实现（BM25 / 向量 / 混合），通过 `RETRIEVER` 环境变量切换，调用方（`kb_search` 工具与 `/kb/search` 接口）零改动。
+上传文档 → 解析（md/txt/pdf/html）→ 切块 → 向量化 → 入库 → 检索 → 精排。检索链路对调用方只暴露一个 `Retriever` Protocol（`search(query, top_k)`）：`bm25` / `embedding` / `hybrid` 三种实现，外层可再套 `RerankedRetriever`（多召回 + 精排），全部通过配置切换，`kb_search` 工具与 `/kb/search` 接口零改动。
 
 ### 为什么 RAG 是工具而不是子智能体
 
@@ -117,7 +120,11 @@ graph TB
 
 ### 切分与检索
 
-- **切分**（`chunker.py`）：按行聚合成 ~500 字的块，相邻块保留 50 字重叠——防止答案正好卡在切割线上
+- **切分**（`chunker.py`，结构感知）：
+  - 按 Markdown 标题分层，每块自动带 `## 章节` 前缀（BM25 与向量都能利用层级信息）
+  - **代码围栏（```）整体成块**，超长时按行切并给每块补成对围栏——代码块不会被腰斩
+  - **保留缩进与空行**（旧版按行 strip 会把代码和段落结构全毁掉）
+  - overlap 只在"正文超长续切"时保留最后一整行；**标题 / 代码块 / 文档结束是硬边界，不重叠**（否则会产生重复块）
 - **文本构造**：入库时把 `标题 + 正文` 一起索引/编码——正文常是代码，标题是唯一的中文线索
 - **三种检索器**（`Retriever` Protocol，`RETRIEVER` 切换）：
 
@@ -127,9 +134,20 @@ graph TB
   | `embedding` | `BAAI/bge-m3` 向量（硅基流动，1024 维） | 语义近似可召回（问"语义搜索"能命中"向量检索"）；内存矩阵 + 余弦，暴力全量 |
   | `hybrid` | BM25 + 向量两路，RRF 融合 | 关键词与语义互补；两路都认可的结果排最前 |
 
+- **两阶段检索**（`reranked_retriever.py` + `rerank.py`）：先召回 20 条候选，再调 `bge-reranker-v2-m3` 精排取 `top_k`。实测同一 query：「多智能体怎么调度」召回阶段 Top1 是"碰巧含关键词"的文档开头（BM25 11.09），精排后变成真正答案所在的「功能」节（relevance 0.88）；rerank 失败自动降级为召回顺序
+- **查询改写**（`query_rewrite.py`）：口语化问题先交给 LLM 改写成 1~3 条检索式（"那个缓存的东西怎么实现的来着" → `缓存 实现 原理`），多路并发召回后按 `chunk_id` 去重合并；解析失败一律降级为原问题
 - **索引**：BM25 用内存倒排（tf/df），向量用内存矩阵；文档变更 `mark_dirty`，下次 `search` 懒重建
 - **不硬凑**：BM25 要求 `score > 0`、向量要求余弦 `≥ 0.3`，不相关查询返回空
 - **降级**：embedding 调用失败（网络 / 429）不阻塞入库——该文档退化为 BM25 可检索，之后可跑 `scripts/reindex_embeddings.py` 补向量
+
+### 文档解析（PDF / HTML）
+
+- **Markdown / 纯文本**：直接解码（UTF-8 → GB18030 回退）
+- **PDF**：`pypdf` 逐页提取文字（纯 Python、无外部依赖）。**只提取文字层**——扫描件/图片型 PDF 抽不出内容，会返回"内容为空"
+- **HTML**：标准库 `HTMLParser` 转 Markdown（h1-h6 → `#`、`<pre>` → ``` 围栏、`<li>` → `- `），让下游的结构感知切分对网页同样生效
+  - 跳过 `style` / `head`；**内联 `<script>` 保留为 ```js 代码块**（"这个动画怎么实现的"要靠它），外链脚本不产生空块
+  - 用 `utf-8-sig` 解码顺带吃掉 BOM
+- **一个现实提醒**：视觉型页面（动画 / 图表 / 游戏）抽出来的文字本来就很少——"没内容"往往是源文件没有可检索文本，而不是解析失败
 
 ### 踩过的坑：只索引 content 导致"搜标题搜不到"
 
@@ -276,6 +294,8 @@ npm run dev                                       # 页面起在 :5173，/api �
 | `DB_URL` | SQLite 连接串，默认 `sqlite+aiosqlite:///./app.db`（相对 backend 启动目录） |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 向量检索（硅基流动 `BAAI/bge-m3`）；不配则自动退化为纯 BM25 |
 | `RETRIEVER` | 检索模式：`bm25`（默认）/ `embedding` / `hybrid` |
+| `RERANK_ENABLED` / `RERANK_MODEL` | 两阶段检索的精排（硅基流动 `BAAI/bge-reranker-v2-m3`）；默认关闭 |
+| `QUERY_REWRITE_ENABLED` | 查询改写（每次检索多一次 LLM 调用）；默认关闭 |
 
 ### 手机访问（同一局域网）
 
@@ -296,7 +316,7 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 ### 使用知识库
 
 1. 点侧边栏「📚 知识库」打开抽屉
-2. 上传 `.txt` / `.md`（≤5MB，UTF-8）或粘贴文本
+2. 上传 `.md` / `.txt` / `.pdf` / `.html`（≤5MB）或粘贴文本——可点选也可直接拖拽
 3. 点文档可展开查看切分结果，也可用「检索调试」直接看当前检索器的命中排序
 4. 回到聊天，问库内相关内容即可——主智能体会自动调 `kb_search`，回答下方可展开「参考片段」
 
@@ -328,7 +348,7 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 
 ## 技术栈
 
-- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / numpy（向量检索） / python-multipart（文件上传） / PyYAML（评测用例） / pytest + pytest-asyncio（测试）
+- **后端**：Python / FastAPI（SSE 流式推送，StreamingResponse）/ OpenAI 兼容 SDK（异步） / httpx / SQLAlchemy 2.0 async + aiosqlite / numpy（向量检索） / pypdf（PDF 解析） / tavily-python（搜索 SDK） / python-multipart（文件上传） / PyYAML（评测用例） / pytest + pytest-asyncio（测试）
 - **前端**：Vue3（script setup）/ TypeScript / Vite / axios + EventSource / marked + highlight.js + DOMPurify
 - **代码分层**：`api`（HTTP 适配：路由与回执）→ `service`（会话 / 任务 / SSE / 知识库业务）→ `db`（模型与引擎）；agent 循环、叶子工具、检索器独立成包
 - **CI**：GitHub Actions（push / PR 自动跑 pytest）
@@ -340,12 +360,12 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'WLA
 backend/
   app/
     api/          HTTP 路由：chat（任务+SSE）/ session / kb
-    service/      业务层：session / task / sse / kb
+    service/      业务层：session / task / sse / kb / usage（LLM 用量）
     agent/        loop（统一循环引擎）/ main_agent / search_agent / weather_agent
     tools/        叶子工具：tavily_search / weather / kb_search
-    kb/           chunker（切分）/ retriever（BM25）/ embedding_retriever / hybrid_retriever / retriever_factory / embedding（批量向量化）
+    kb/           extract（md/pdf/html 解析）/ chunker / retriever（BM25）/ embedding_retriever / hybrid_retriever / reranked_retriever / rerank / query_rewrite / retriever_factory
     db/           models / session（引擎与 get_db）
-    core/         config（pydantic-settings）
+    core/         config（pydantic-settings）/ context（ContextVar：session/task 归属）
   evals/          评测：runner + cases.yml + results/
   tests/          pytest：conftest（隔离库 / client / mock agent）+ 会话 / 任务 / 知识库 / SSE
 frontend/
@@ -372,7 +392,8 @@ docs/
 - [x] **接口契约文档**：前后端字段级对照 + 时序图
 - [x] **自动化测试与 CI**：pytest 覆盖关键路径（独立测试库 + mock LLM），GitHub Actions 自动运行
 - [x] **Embedding 检索器与混合检索**：bge-m3 向量 + RRF 融合，`RETRIEVER` 三模式切换
-- [ ] 知识库升级为 `kb_agent`：query 改写 / 多跳检索 / rerank 融合
+- [x] **知识库检索增强**：结构感知切分（标题层级 / 代码围栏）、PDF-HTML 解析、rerank 两阶段、查询改写
+- [ ] 多跳检索（`kb_agent`）：第一轮结果提取线索 → 第二轮补查
 - [ ] 中文分词换 `jieba`（当前 2-gram 会产生 `存的`/`的双` 这类噪声 token）
 - [ ] 代码执行子智能体（Docker 沙箱）
 - [ ] NL2SQL 子智能体
