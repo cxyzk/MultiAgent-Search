@@ -26,7 +26,11 @@
           <span class="kb-btn-icon">📚</span>
           知识库
         </button>
-        <ul class="session-list">
+        <ul
+            ref="sessionListEl"
+            class="session-list"
+            @scroll.passive="onSessionListScroll"
+        >
           <li
               v-for="s in sessions"
               :key="s.id"
@@ -242,6 +246,20 @@ const menu = ref<{ visible: boolean; x: number; y: number; session: SessionItem 
 
 // 菜单 DOM：渲染后量实际尺寸再做位置校正（手机上防止菜单超出屏幕）
 const menuEl = ref<HTMLElement | null>(null)
+
+// 会话列表滚动条：滚动时显现，停下 800ms 后淡出
+const sessionListEl = ref<HTMLElement | null>(null)
+let sessionListScrollTimer: number | undefined
+
+function onSessionListScroll(): void {
+  const el = sessionListEl.value
+  if (!el) return
+  el.classList.add('scrolling')
+  window.clearTimeout(sessionListScrollTimer)
+  sessionListScrollTimer = window.setTimeout(() => {
+    el.classList.remove('scrolling')
+  }, 800)
+}
 
 
 function closeMenu(): void {
@@ -654,7 +672,9 @@ onUnmounted(() => {
    → 标题的 text-overflow 省略号位置全程固定，不会逐帧跳动 */
 .sidebar-inner {
   width: var(--sb-w);
-  flex-shrink: 0;
+  /* ★ 必须撑满 .sidebar 的高度：否则高度=内容高度，
+     session-list 的 flex:1 无处可分配，会话一多就撑高 inner 被 overflow:hidden 裁掉 */
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -751,6 +771,28 @@ onUnmounted(() => {
   gap: 4px;
   flex: 1; /* ★ 关键：从"内容多高就多高"改成"占满剩余空间" */
   min-height: 0; /* ★ 允许被压扁 → overflow-y 才生效 */
+
+  /* 滚动条"用时出现、不用时消失"：宽度沿用全局（不跳），滑块平时透明 */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.session-list.scrolling {
+  scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
+}
+
+/* WebKit：滑块平时透明，滚动 / 悬停时显现 */
+.session-list::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.25s ease;
+}
+
+.session-list.scrolling::-webkit-scrollbar-thumb,
+.session-list:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.5);
 }
 
 /* ★ 替换 .session-item：从"整行省略号"改成 flex 两端布局 */
