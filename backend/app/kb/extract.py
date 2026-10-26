@@ -13,18 +13,29 @@ _HTML_EXTS = {"html", "htm"}
 
 
 class _MarkdownExtractor(HTMLParser):
-    """HTML → Markdown 的极简提取：标题 / 代码块 / 列表 / 段落，跳过 script/style。"""
+    """HTML → Markdown 的极简提取：标题 / 代码块 / 列表 / 段落。
+
+    跳过 style / head：
+    - head 里的 <title> 和 documents.title 重复，正文也不在 head 里
+    - CSS 对问答价值低、体量大
+    <script> 保留为 ```js 代码块——页面逻辑也是内容（"这个动画怎么实现的"要靠它）。
+    外链 <script src> 没有内联内容，不会产生空代码块。
+    """
 
     _HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
     _BLOCKS = {"p", "div", "br", "tr", "blockquote", "section", "article"}
+    _SKIP = {"style", "head"}
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip_depth = 0
+        self._script_buf: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs) -> None:
-        if tag in ("script", "style"):
+        if tag == "script":
+            self._script_buf = []                  # 开始收集内联脚本
+        elif tag in self._SKIP:
             self._skip_depth += 1
         elif tag in self._HEADINGS:
             self.parts.append("\n" + "#" * int(tag[1]) + " ")
@@ -36,7 +47,12 @@ class _MarkdownExtractor(HTMLParser):
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style"):
+        if tag == "script":
+            code = "".join(self._script_buf or []).strip()
+            if code:
+                self.parts.append(f"\n\n```js\n{code}\n```\n\n")
+            self._script_buf = None
+        elif tag in self._SKIP:
             self._skip_depth = max(0, self._skip_depth - 1)
         elif tag == "pre":
             self.parts.append("\n```\n\n")
@@ -44,13 +60,15 @@ class _MarkdownExtractor(HTMLParser):
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self._skip_depth:
+        if self._script_buf is not None:
+            self._script_buf.append(data)
+        elif not self._skip_depth:
             self.parts.append(data)
 
 
 def _decode_text(data: bytes) -> str:
-    """常见编码逐个尝试：中文的 txt/html 里有不少 GBK。"""
-    for encoding in ("utf-8", "gb18030"):
+    """常见编码逐个尝试；utf-8-sig 顺便吃掉 BOM（中文 Windows 里很常见）。"""
+    for encoding in ("utf-8-sig", "gb18030"):
         try:
             return data.decode(encoding)
         except UnicodeDecodeError:

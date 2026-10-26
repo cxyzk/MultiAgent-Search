@@ -63,15 +63,19 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
         if current:
             chunks.append(fence + "\n" + "\n".join(current) + "\n```")
 
-    def flush_body() -> None:
-        """结束当前正文块；尾部留一行做重叠（整行重叠，避免把词/汉字切断）"""
+    def flush_body(keep_tail: bool = True) -> None:
+        """结束当前正文块。
+
+        keep_tail=True 只在"正文超长、要续切"时用——留最后一行给下一块做重叠。
+        遇到标题 / 代码围栏 / 文档结束时传 False：这些是硬边界，tail 会变成重复内容。
+        """
         nonlocal body_lines, body_len
         if not body_lines:
             return
         text_so_far = "\n".join(body_lines)
         emit(text_so_far)
         lines = [ln for ln in text_so_far.splitlines() if ln.strip()]
-        tail = lines[-1] if (overlap > 0 and lines) else ""
+        tail = lines[-1] if (keep_tail and overlap > 0 and lines) else ""
         body_lines = [tail] if tail else []
         body_len = len(tail)
 
@@ -81,7 +85,7 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
         # ① 代码围栏：整块收集，不参与正文聚合
         if _FENCE_RE.match(line):
             if code_block is None:
-                flush_body()                 # 正文先收尾
+                flush_body(keep_tail=False)   # 代码围栏是硬边界，不重叠
                 code_block = [line]
             else:
                 code_block.append(line)
@@ -95,7 +99,7 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
         # ② 标题：更新层级，并强制切开当前块（块不跨标题）
         heading_match = _HEADING_RE.match(line)
         if heading_match:
-            flush_body()
+            flush_body(keep_tail=False)       # 标题是硬边界，不重叠
             level = len(heading_match.group(1))
             title = heading_match.group(2).strip()
             while heading_stack and heading_stack[-1][0] >= level:
@@ -118,5 +122,5 @@ def split_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
     # 收尾：未闭合的代码块 + 剩余正文
     if code_block is not None:
         emit_code(code_block)
-    flush_body()
+    flush_body(keep_tail=False)
     return chunks
