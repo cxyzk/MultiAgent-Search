@@ -1,12 +1,18 @@
-"""知识库业务：文档入库（切分 + 落库）、列表、删除。"""
+"""知识库业务：文档入库（切分 + 向量化 + 落库）、列表、删除。"""
+import logging
 import uuid
 
+import numpy as np
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Chunk
 from app.kb.chunker import split_text
+from app.kb.embedding import embed, embedding_enabled
+from app.kb.embedding_retriever import embedding_retriever
 from app.kb.retriever import bm25_retriever
+
+logger = logging.getLogger(__name__)
 
 
 class KBService:
@@ -19,10 +25,24 @@ class KBService:
         #确定插入顺序的正确性
         await db.flush()
         pieces = split_text(content)
+
+        # 向量化：配了 embedding key 才做；失败降级为纯 BM25，不阻塞入库
+        vectors: list[list[float]] = []
+        if embedding_enabled():
+            try:
+                # 文本构造与重建脚本保持一致：标题 + 正文
+                vectors = await embed([f"{title}\n{piece}" for piece in pieces])
+            except Exception as e:
+                logger.warning("embedding 失败，降级为纯 BM25: %s", e)
+
         for seq, piece in enumerate(pieces):
-            db.add(Chunk(document_id=doc_id, seq=seq, content=piece))
+            blob = (np.asarray(vectors[seq], dtype=np.float32).tobytes()
+                    if vectors else None)
+            db.add(Chunk(document_id=doc_id, seq=seq, content=piece, embedding=blob))
+
         await db.commit()
         bm25_retriever.mark_dirty()          # ★ 通知检索器：索引该重建了
+        embedding_retriever.mark_dirty()     # ★ 向量索引也一起重建
         return {"id": doc_id, "title": title, "chunks": len(pieces)}
 
     @staticmethod

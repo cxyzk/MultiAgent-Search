@@ -10,6 +10,15 @@ os.environ.setdefault("LLM_BASE_URL", "http://localhost:9/v1")
 os.environ.setdefault("LLM_API_KEY", "test-key")
 os.environ.setdefault("LLM_MODEL", "test-model")
 
+# 3) Rerank：测试不真调 rerank API（慢且消耗额度），固定关掉
+os.environ["RERANK_ENABLED"] = "false"
+
+# 4) Embedding：测试同样不调外部 API（入库会降级为纯 BM25）
+os.environ["EMBEDDING_API_KEY"] = ""
+
+# 5) 查询改写：测试不调 LLM
+os.environ["QUERY_REWRITE_ENABLED"] = "false"
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import text

@@ -1,5 +1,9 @@
 """知识库检索工具：主 agent 的 RAG 入口。"""
+import asyncio
+
+from app.core.config import settings
 from app.kb.factory import get_retriever
+from app.kb.query_rewrite import rewrite_query
 
 
 KB_SEARCH_TOOL_SCHEMA = {
@@ -24,7 +28,23 @@ KB_SEARCH_TOOL_SCHEMA = {
 }
 
 async def kb_search(query: str, top_k: int = 5) -> dict:
-    hits = await get_retriever().search(query, top_k)
+    retriever = get_retriever()
+
+    # ① 查询改写（可选）：口语化问题 → 1~3 条检索式
+    queries = [query]
+    if settings.query_rewrite_enabled:
+        queries = await rewrite_query(query)
+
+    # ② 多路并发检索，按 chunk_id 去重（同一个片段保留最高分）
+    batches = await asyncio.gather(*(retriever.search(q, top_k) for q in queries))
+    merged: dict[int, dict] = {}
+    for batch in batches:
+        for hit in batch:
+            existing = merged.get(hit["chunk_id"])
+            if existing is None or hit["score"] > existing["score"]:
+                merged[hit["chunk_id"]] = hit
+
+    hits = sorted(merged.values(), key=lambda item: item["score"], reverse=True)[:top_k]
 
     if not hits:
         # ★ 关键：明确告诉模型“没查到”，它才会去调 search_agent 或如实说不知道
