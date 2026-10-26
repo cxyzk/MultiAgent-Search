@@ -15,9 +15,10 @@
           </div>
 
           <template v-if="tab === 'file'">
-            <label class="kb-drop" :class="{ busy: uploading }">
-              <input type="file" accept=".txt,.md" hidden @change="onPickFile"/>
-              <span>{{ uploading ? '上传中…' : '点击选择 .txt / .md（≤5MB，UTF-8）' }}</span>
+            <label class="kb-drop" :class="{ busy: uploading }" @dragover.prevent @drop.prevent="onDrop">
+              <input type="file" accept=".txt,.md,.pdf,.html,.htm" hidden @change="onPickFile"/>
+              <span class="drop-main">{{ uploading ? '上传中…' : '点击或拖拽文件到这里' }}</span>
+              <span class="drop-hint">支持 .md / .txt / .pdf / .html（≤5MB）</span>
             </label>
           </template>
 
@@ -61,7 +62,10 @@
               <div class="doc-row">
                 <div class="doc-main" @click="toggleDetail(d.id)">
                   <div class="doc-title">{{ d.title }}</div>
-                  <div class="doc-meta">{{ d.chunk_count }} 块 · {{ d.created_at.slice(0, 19) }}</div>
+                  <div class="doc-meta">
+                    <span class="doc-type">{{ typeLabel(d.source) }}</span>
+                    {{ d.chunk_count }} 块 · {{ d.created_at.slice(0, 19) }}
+                  </div>
                 </div>
                 <button class="doc-del" title="删除" @click="onDelete(d)">✕</button>
               </div>
@@ -130,7 +134,16 @@ watch(() => props.open, (v) => {
 async function onPickFile(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  input.value = ''          // ★ 立即清空：否则选同一个文件不触发 change
+  if (file) await uploadOne(file)
+}
+
+async function onDrop(ev: DragEvent): Promise<void> {
+  const file = ev.dataTransfer?.files?.[0]
+  if (file) await uploadOne(file)
+}
+
+async function uploadOne(file: File): Promise<void> {
   uploading.value = true
   error.value = ''
   try {
@@ -141,8 +154,17 @@ async function onPickFile(ev: Event): Promise<void> {
     error.value = e?.response?.data?.detail ?? '上传失败'
   } finally {
     uploading.value = false
-    input.value = ''        // ★ 必须清空，否则选同一个文件不触发 change
   }
+}
+
+/** 从 source 文件名推断类型标签（粘贴文本没有 source） */
+function typeLabel(source: string | null): string {
+  if (!source) return '文本'
+  const ext = source.slice(source.lastIndexOf('.') + 1).toLowerCase()
+  const labels: Record<string, string> = {
+    md: 'MD', markdown: 'MD', txt: 'TXT', pdf: 'PDF', html: 'HTML', htm: 'HTML',
+  }
+  return labels[ext] ?? 'FILE'
 }
 
 async function onUploadText(): Promise<void> {
@@ -274,15 +296,26 @@ async function onSearch(): Promise<void> {
 
 .kb-drop {
   display: flex;
+  flex-direction: column;     /* 主文案 + 格式提示分两行 */
   align-items: center;
   justify-content: center;
-  height: 84px;
+  gap: 4px;
+  height: 92px;
   border: 1.5px dashed #d1d5db;
   border-radius: 12px;
   color: #6b7280;
   font-size: 13px;
   cursor: pointer;
   transition: 0.15s;
+}
+
+.drop-main {
+  color: #374151;
+}
+
+.drop-hint {
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .kb-drop:hover {
@@ -410,6 +443,18 @@ async function onSearch(): Promise<void> {
   font-size: 12px;
   color: #9ca3af;
   margin-top: 2px;
+}
+
+.doc-type {
+  display: inline-block;
+  padding: 0 5px;
+  margin-right: 4px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 16px;
+  vertical-align: 1px;
 }
 
 .doc-del {

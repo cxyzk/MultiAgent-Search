@@ -3,8 +3,10 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.kb.extract import extract_text
 from app.kb.factory import get_retriever
 from app.service.kb_service import kb_service
+import asyncio
 import os
 from pydantic import BaseModel
 
@@ -20,16 +22,19 @@ async def upload_document(
     content: str | None = Form(None),
     title: str | None = Form(None)
 ):
-    """上传 txt/md 文件，或提交粘贴文本（二者给一个）"""
+    """上传 md / txt / pdf / html 文件，或提交粘贴文本（二者给一个）"""
     if file is not None:
         raw = await file.read()
         if len(raw) > MAX_FILE_BYTES:
             raise HTTPException(413, "文件超过 5MB")
+        name = file.filename or "未命名.txt"
         try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(400, "只支持 UTF-8 编码的文本文件")
-        name = file.filename or  "未命名.txt"
+            # pypdf 是同步库，丢到线程池里跑，避免阻塞事件循环
+            text = await asyncio.to_thread(extract_text, name, raw)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(400, f"文件解析失败：{type(e).__name__}: {e}")
         doc_title = title or os.path.splitext(os.path.basename(name))[0]
         source = name
     elif content:
