@@ -185,7 +185,7 @@
     <KbPanel :open="kbOpen" @close="kbOpen = false"/>
 
   </div>
-  <Toast />
+  <Toast/>
 </template>
 
 
@@ -194,7 +194,8 @@ import {ref, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue
 import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
 import type {SessionItem, TaskItem} from './api/session'
 import Toast from './components/Toast.vue'
-import { toast } from './composables/useToast'
+import {toast} from './composables/useToast'
+import {useChatStream} from './composables/useChatStream'
 import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
@@ -205,11 +206,9 @@ import SearchIcon from './components/SearchIcon.vue'
 
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
-const connected = ref(false)
 const running = ref(false)
 const listEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
-let es: EventSource | null = null
 // ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
 const notice = ref('')
 // ★ 知识库面板开关
@@ -295,7 +294,7 @@ async function toggleMenu(event: MouseEvent, session: SessionItem): Promise<void
   await nextTick()
   const menuElement = menuEl.value
   if (!menuElement) return
-  const { width, height } = menuElement.getBoundingClientRect()
+  const {width, height} = menuElement.getBoundingClientRect()
 
   // 右边界：超出就往左收
   let x = anchor.left
@@ -409,7 +408,7 @@ function labelOf(tool: string): string {
   return TOOL_LABEL[tool] ?? tool
 }
 
-// 后端推送 -> 前端消息的唯一入口
+// 事件 → UI 的映射留在 App（和界面一起改最方便）；连接本身在 useChatStream 里
 function handleEvent(msg: ServerEvent): void {
   switch (msg.type) {
     case 'progress':
@@ -420,8 +419,10 @@ function handleEvent(msg: ServerEvent): void {
       break
     case 'citations':
       // 只暂存，等 result 时随最终回答一起展示；按 chunk_id 去重（多轮检索可能重复命中）
-      for (const c of msg.items) {
-        if (!pendingCitations.some((x) => x.chunk_id === c.chunk_id)) pendingCitations.push(c)
+      for (const citation of msg.items) {
+        if (!pendingCitations.some((item) => item.chunk_id === citation.chunk_id)) {
+          pendingCitations.push(citation)
+        }
       }
       break
     case 'token':
@@ -432,7 +433,7 @@ function handleEvent(msg: ServerEvent): void {
       pendingCitations = []
       streamingText.value = ''
       running.value = false
-      void loadSessions()   // ★ 标题/排序变了，刷新侧边栏
+      void loadSessions()   // 标题/排序变了，刷新侧边栏
       break
     case 'error':
       push('error', msg.error)
@@ -442,6 +443,11 @@ function handleEvent(msg: ServerEvent): void {
       break
   }
 }
+
+const {connected, connect} = useChatStream({
+  onOpen: restoreHistory,   // 每次（重）连成功都对齐一次历史
+  onEvent: handleEvent,     // 解析后的事件原样交回来
+})
 
 // ★ 拉会话列表
 async function loadSessions(): Promise<void> {
@@ -464,32 +470,9 @@ function createSession(): void {
 // ★ 切换会话：关旧连接 → 换 id → 重连（onopen 里会自动拉新会话的历史）
 function switchSession(id: string): void {
   if (id === sessionId.value) return
-  es?.close()
   sessionId.value = id
-  connect()
+  connect(sessionId.value)               // connect 内部会先断开旧连接
 }
-
-function connect() {
-  // 相对路径走 vite 代理（不再硬编码 ws://127.0.0.1:8001）
-  es = new EventSource(`/api/events/${sessionId.value}`)
-  // 每次（重）连成功都会触发 open —— 历史对齐逻辑原样保留
-  es.onopen = async () => {
-    connected.value = true
-    try {
-      await restoreHistory()
-    } catch (e) {
-      console.error('恢复历史失败', e)
-    }
-  }
-  es.onmessage = (event: MessageEvent<string>) => {
-    handleEvent(JSON.parse(event.data) as ServerEvent)
-  }
-  es.onerror = () => {
-    // 不写重连！浏览器按 ~3 秒间隔自动重连，成功后会再次触发 onopen
-    connected.value = false
-  }
-}
-
 
 async function restoreHistory() {
   // 历史和任务状态一起查
@@ -541,7 +524,7 @@ onMounted(() => {
   syncMobile(mql)
   mql.addEventListener('change', syncMobile)
 
-  connect()
+  connect(sessionId.value)
   void loadSessions()
   document.addEventListener('click', closeMenu)      // ★ 新增
 })
@@ -549,9 +532,8 @@ onMounted(() => {
 onUnmounted(() => {
   mql?.removeEventListener('change', syncMobile)
   mql = null
-  document.removeEventListener('click', closeMenu)   // ★ 新增：不移除会泄漏，还会响应已卸载的组件
-  es?.close()
-  es = null
+  document.removeEventListener('click', closeMenu)   // ★ 不移除会泄漏，还会响应已卸载的组件
+  // SSE 连接由 useChatStream 内部的 onUnmounted 自动清理
 })
 
 </script>
@@ -1260,7 +1242,6 @@ onUnmounted(() => {
   }
 
   /* .chat-app 已是 display: contents，无需再限制宽度 */
-
   /* ---- 移动端三段式固定布局：header 顶部、消息区滚动、输入框底部 ----
      不用 sticky/fixed 定位（会和 iOS 键盘打架），而是让 flex 容器吃满高度，
      中间的消息区独占剩余空间并自己滚动——这样 header 和输入框天然不动。 */
@@ -1288,7 +1269,7 @@ onUnmounted(() => {
 
   /* 输入框固定在底部，并避开 iPhone 底部横条 */
   .input-bar {
-    width: auto;   /* 手机上用左右 margin 控制宽度（覆盖宽屏的 calc） */
+    width: auto; /* 手机上用左右 margin 控制宽度（覆盖宽屏的 calc） */
     margin: 0 12px;
     margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     flex-shrink: 0;
