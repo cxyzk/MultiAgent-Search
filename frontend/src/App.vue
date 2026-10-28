@@ -185,6 +185,7 @@
     <KbPanel :open="kbOpen" @close="kbOpen = false"/>
 
   </div>
+  <Toast />
 </template>
 
 
@@ -192,6 +193,8 @@
 import {ref, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
 import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
 import type {SessionItem, TaskItem} from './api/session'
+import Toast from './components/Toast.vue'
+import { toast } from './composables/useToast'
 import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
@@ -327,9 +330,11 @@ async function onRenameConfirm(title: string): Promise<void> {
     await renameSession(s.id, title)
   } catch (e) {
     console.error('重命名失败', e)
+    toast.error('重命名失败')
     return
   }
   sessions.value = sessions.value.map((x) => (x.id === s.id ? {...x, title} : x))
+  toast.success('已重命名')
 }
 
 function onDelete(): void {
@@ -347,9 +352,11 @@ async function onDeleteConfirm(): Promise<void> {
     await deleteSession(s.id)
   } catch (e) {
     console.error('删除会话失败', e)
+    toast.error('删除失败')
     return
   }
   sessions.value = sessions.value.filter((x) => x.id !== s.id)
+  toast.success('会话已删除')
   if (s.id === sessionId.value) {
     const next = sessions.value[0]
     if (next) switchSession(next.id)
@@ -574,6 +581,9 @@ onUnmounted(() => {
   padding: 0px 16px;
   background: #fff;
   flex-shrink: 0; /* 不被压缩 */
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto; /* 与消息列同宽居中 */
 }
 
 .header-meta {
@@ -930,21 +940,19 @@ onUnmounted(() => {
 
 
 .chat-app {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0; /* 防止 flex 子项被长内容撑破 */
-  max-width: 800px;
-  min-height: 0;
-  width: 100%; /* ★ 显式撑开，抵消 auto margin 的收缩 */
-  margin: 0 auto; /* 水平居中（在 width:100% 的前提下仍然有效） */
+  /* 摊平：元素本身不生成盒子，header / message-list / input-bar 直接参与
+     .app-body 的 flex 布局——滚动条因此挂在 app-body 右边缘（窗口最右），
+     而不是贴在 800px 内容列的右边 */
+  display: contents;
 }
 
 .message-list {
   flex: 1;
   gap: 10px;
   overflow-y: auto;
-  padding: 16px;
+  /* 宽屏时左右 padding 跟上居中列（800px），内容仍居中；
+     窄屏回落到 16px。滚动条在容器右边缘 = 窗口最右 */
+  padding: 16px max(16px, calc((100% - 800px) / 2 + 16px));
   display: flex;
   flex-direction: column;
   min-height: 0; /* ★ */
@@ -970,8 +978,10 @@ onUnmounted(() => {
 .input-bar {
   display: flex;
   flex-direction: column;
-  /* 左右 16px 与 .message-list 的 padding 对齐，让输入框和消息气泡左右边缘齐平 */
-  margin: 0 16px 20px;
+  /* 与居中列对齐：宽 800-32、水平居中；手机上由媒体查询改成 margin 控制 */
+  width: calc(100% - 32px);
+  max-width: 768px;
+  margin: 0 auto 20px;
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 16px;
@@ -1249,10 +1259,7 @@ onUnmounted(() => {
     width: 100%;
   }
 
-  .chat-app {
-    max-width: none; /* 手机上不需要 800px 阅读宽度限制 */
-    margin: 0;
-  }
+  /* .chat-app 已是 display: contents，无需再限制宽度 */
 
   /* ---- 移动端三段式固定布局：header 顶部、消息区滚动、输入框底部 ----
      不用 sticky/fixed 定位（会和 iOS 键盘打架），而是让 flex 容器吃满高度，
@@ -1281,6 +1288,7 @@ onUnmounted(() => {
 
   /* 输入框固定在底部，并避开 iPhone 底部横条 */
   .input-bar {
+    width: auto;   /* 手机上用左右 margin 控制宽度（覆盖宽屏的 calc） */
     margin: 0 12px;
     margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     flex-shrink: 0;
