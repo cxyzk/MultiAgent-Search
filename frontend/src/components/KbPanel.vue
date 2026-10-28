@@ -67,7 +67,15 @@
                     {{ d.chunk_count }} 块 · {{ d.created_at.slice(0, 19) }}
                   </div>
                 </div>
-                <button class="doc-del" title="删除" @click="onDelete(d)">✕</button>
+                <button class="doc-del" title="删除文档" @click="onDelete(d)">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 7h16"/>
+                    <path d="M10 4h4"/>
+                    <path d="M6 7l1 13h10l1-13"/>
+                    <path d="M10 11v6M14 11v6"/>
+                  </svg>
+                </button>
               </div>
               <ul v-if="detail?.id === d.id" class="doc-chunks">
                 <li v-for="c in detail.chunks" :key="c.seq">
@@ -100,6 +108,7 @@ import {
 } from '../api/kb'
 import type {KbDocumentItem, KbDocumentDetail, KbHit} from '../api/kb'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { toast } from '../composables/useToast'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -149,6 +158,7 @@ async function uploadOne(file: File): Promise<void> {
   try {
     await uploadFile(file)
     await load()
+    toast.success('上传成功')
   } catch (e: any) {
     // 后端 413 / 400 的 detail 在 e.response.data.detail
     error.value = e?.response?.data?.detail ?? '上传失败'
@@ -208,6 +218,7 @@ async function onDeleteConfirm(): Promise<void> {
     await deleteDocument(d.id)
     if (detail.value?.id === d.id) detail.value = null
     await load()
+    toast.success('文档已删除')
   } catch (e) {
     error.value = '删除失败'
   }
@@ -459,13 +470,17 @@ async function onSearch(): Promise<void> {
 
 .doc-del {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 28px;                 /* 触摸区域比图标大一圈，手机上也好点 */
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: transparent;
   color: #9ca3af;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
 .doc-del:hover {
