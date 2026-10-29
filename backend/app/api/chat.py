@@ -14,6 +14,8 @@ router = APIRouter()
 class TaskRequest(BaseModel):
     query: str
     session_id: str   # 前端先连 WS 用的身份，提交任务时带上
+    deep_think: bool = False     # 深度思考：flash 带 reasoning_effort=high（思考 token 约翻倍）
+    force_search: bool = False   # 智能搜索：跳过主 agent 的决策，发送前先强制联网
 
 
 @router.post("/task")
@@ -32,6 +34,10 @@ async def create_task(req: TaskRequest):
         # 直播：文本增量立刻推送，不等汇总
         await sse_service.push(req.session_id, {"type": "token", "task_id": task_id, "delta": delta})
 
+    async def on_reasoning(delta: str) -> None:
+        # 思考过程单独推（reasoning_content），前端折叠展示，不和正文混在一起
+        await sse_service.push(req.session_id, {"type": "reasoning", "task_id": task_id, "delta": delta})
+
     # ★ 全量轨迹落库钩子：loop 每产生一条消息就调一次
     async def on_message(msg: dict) -> None:
         tool_calls = msg.get("tool_calls")
@@ -44,7 +50,7 @@ async def create_task(req: TaskRequest):
                 tool_calls=json.dumps(tool_calls, ensure_ascii=False) if tool_calls else None,
                 tool_call_id=msg.get("tool_call_id"),
             )
-    asyncio.create_task(task_service.job(req,task_id,on_progress,on_token,on_message))  # 丢后台跑，HTTP 立刻返回
+    asyncio.create_task(task_service.job(req, task_id, on_progress, on_token, on_message, on_reasoning))  # 丢后台跑，HTTP 立刻返回
     return {"task_id": task_id, "session_id": req.session_id}
 
 

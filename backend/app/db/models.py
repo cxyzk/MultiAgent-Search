@@ -25,6 +25,9 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     tool_calls: Mapped[str | None] = mapped_column(Text)
     tool_call_id: Mapped[str | None] = mapped_column(String(64))
+    # 展示用：思考过程（多轮合并）与任务用量汇总 JSON，只落在最终回答那条上
+    reasoning: Mapped[str | None] = mapped_column(Text)
+    usage_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
     # 最热的查询是"取某会话最近 N 条"，这个联合索引刚好覆盖

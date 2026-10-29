@@ -1,6 +1,18 @@
 <template>
   <div class="row" :class="'row-' + msg.kind">
     <div class="bubble-wrap">
+      <!-- 思考过程：挂在这条回答上方，默认折叠 -->
+      <div v-if="msg.reasoning" class="reasoning">
+        <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+          已思考（用时 {{ msg.reasoningSeconds || 1 }} 秒）
+          <svg class="reasoning-arrow" :class="{ open: reasoningOpen }" viewBox="0 0 24 24"
+               width="12" height="12" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 6l6 6-6 6"/>
+          </svg>
+        </button>
+        <div v-if="reasoningOpen" class="reasoning-body">{{ msg.reasoning }}</div>
+      </div>
       <div
           v-if="msg.kind === 'assistant'"
           class="bubble bubble-assistant markdown-body"
@@ -47,6 +59,9 @@ const props = defineProps<{ msg: ChatMessage }>()
 
 // 引用列表的展开状态，每条消息独立
 const open = ref(false)
+
+// 思考过程的折叠状态（历史消息默认收起，省空间）
+const reasoningOpen = ref(false)
 
 /** 1234 → "1.2k"；不足千直接显示 */
 function formatTokens(n: number): string {

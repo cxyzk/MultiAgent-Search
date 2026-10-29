@@ -14,7 +14,9 @@ export interface UsageInfo {
   completion_tokens: number
   total_tokens: number
   cache_hit_tokens: number  // 上下文缓存命中（计费更低）
-  llm_latency_ms: number    // 本任务累计 LLM 耗时（毫秒）
+  llm_latency_ms: number    // 本任务累计 LLM 耗时（毫秒，含工具轮）
+  reasoning_latency_ms?: number  // 其中有思考的调用耗时
+  thinking_ms?: number     // 开始 → 首个回答 token（"已思考（用时 N 秒）"，比 LLM 总耗时短）
 }
 
 export interface ChatMessage {
@@ -23,6 +25,8 @@ export interface ChatMessage {
   text: string
   citations?: Citation[]   // 仅 assistant 消息可能带，渲染"参考片段"
   usage?: UsageInfo        // 仅 assistant 最终回答可能带，渲染用量小字
+  reasoning?: string       // 本次回答的思考过程（reasoning_content），折叠展示在气泡上方
+  reasoningSeconds?: number // 本次任务的 LLM 耗时（秒），用于"已思考（用时 N 秒）"
 }
 
 // 后端 sse 推送的事件：按 type 可辨识的联合类型，和后端协议一一对应
@@ -33,3 +37,4 @@ export type ServerEvent =
   | { type: 'result'; content: string; task_id: string; usage?: UsageInfo }
   | { type: 'error'; error: string; task_id: string }
   | { type: 'token'; delta: string; task_id: string }
+  | { type: 'reasoning'; delta: string; task_id: string }

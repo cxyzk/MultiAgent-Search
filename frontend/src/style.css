@@ -171,3 +171,45 @@ body {
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
 }
+
+/* ===== 思考过程（reasoning_content）：灰字 + 折叠 =====
+   流式面板（App）和历史消息（ChatBubble）共用，所以放全局 */
+.reasoning {
+}
+
+.reasoning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 14px;
+    font-family: inherit;
+    color: rgb(97, 102, 107);
+    cursor: pointer;
+}
+
+.reasoning-toggle:hover {
+    color:rgb(15, 17, 21);
+}
+
+.reasoning-arrow {
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+
+.reasoning-arrow.open {
+    transform: rotate(90deg);   /* 折叠朝右 ▸，展开转向下 ⌄ */
+}
+
+.reasoning-body {
+    margin-top: 6px;
+    padding: 4px 6px;
+    border-left: 2px solid #e5e7eb;
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgb(97, 102, 107);
+    white-space: pre-wrap;
+    word-break: break-word;
+}

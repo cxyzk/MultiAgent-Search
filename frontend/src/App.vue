@@ -110,6 +110,17 @@
         <main ref="listEl" class="message-list">
           <div v-if="notice" class="notice">{{ notice }}</div>
           <ChatBubble v-for="m in messages" :key="m.id" :msg="m"/>
+          <div v-if="reasoningText" class="reasoning">
+            <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+              思考中…
+              <svg class="reasoning-arrow" :class="{ open: reasoningOpen }" viewBox="0 0 24 24"
+                   width="12" height="12" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 6l6 6-6 6"/>
+              </svg>
+            </button>
+            <div v-if="reasoningOpen" class="reasoning-body">{{ reasoningText }}</div>
+          </div>
           <div v-if="streamingText" class="streaming-row">
             <div class="streaming-bubble">
               {{ streamingText }}<span class="cursor">▍</span>
@@ -136,8 +147,9 @@
               <button
                   class="tool-toggle"
                   type="button"
-                  disabled
-                  title="即将支持"
+                  :class="{ on: deepThink }"
+                  title="深度思考：模型花更多 token 推理，回答更深入但更慢"
+                  @click="deepThink = !deepThink"
               >
                 <ThinkingIcon/>
                 深度思考
@@ -145,8 +157,9 @@
               <button
                   class="tool-toggle"
                   type="button"
-                  disabled
-                  title="即将支持"
+                  :class="{ on: webSearch }"
+                  title="智能搜索：发送前强制联网检索一次"
+                  @click="webSearch = !webSearch"
               >
                 <SearchIcon/>
                 智能搜索
@@ -207,6 +220,14 @@ import SearchIcon from './components/SearchIcon.vue'
 const messages = ref<ChatMessage[]>([])
 const input = ref('')
 const running = ref(false)
+// 本轮思考过程（reasoning_content）：流式累积，不落库，刷新后消失
+const reasoningText = ref('')
+const reasoningOpen = ref(true)
+// 输入框工具开关（刷新后保持）
+const deepThink = ref(localStorage.getItem('tool_deep_think') === '1')
+const webSearch = ref(localStorage.getItem('tool_web_search') === '1')
+watch(deepThink, (v) => localStorage.setItem('tool_deep_think', v ? '1' : '0'))
+watch(webSearch, (v) => localStorage.setItem('tool_web_search', v ? '1' : '0'))
 const listEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
 // ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
@@ -391,8 +412,9 @@ watch(sessionId, () => {
 })
 
 
-function push(kind: ChatMessage['kind'], text: string, citations?: Citation[], usage?: UsageInfo): void {
-  messages.value.push({id: Date.now() + Math.random(), kind, text, citations, usage})
+function push(kind: ChatMessage['kind'], text: string, citations?: Citation[],
+              usage?: UsageInfo, reasoning?: string, reasoningSeconds?: number): void {
+  messages.value.push({id: Date.now() + Math.random(), kind, text, citations, usage, reasoning, reasoningSeconds})
 }
 
 // 工具名 -> 中文标签，进度日志不再直接甩英文函数名
@@ -425,12 +447,21 @@ function handleEvent(msg: ServerEvent): void {
         }
       }
       break
+    case 'reasoning':
+      reasoningText.value += msg.delta
+      break
     case 'token':
       streamingText.value += msg.delta
       break
     case 'result':
-      push('assistant', msg.content, pendingCitations.length ? pendingCitations : undefined, msg.usage)
+      // 思考过程跟着这条回答走（渲染在气泡上方）；流式面板随即清空
+      push('assistant', msg.content, pendingCitations.length ? pendingCitations : undefined,
+          msg.usage, reasoningText.value || undefined,
+          msg.usage?.thinking_ms
+              ? Math.max(1, Math.round(msg.usage.thinking_ms / 1000))
+              : undefined)
       pendingCitations = []
+      reasoningText.value = ''
       streamingText.value = ''
       running.value = false
       void loadSessions()   // 标题/排序变了，刷新侧边栏
@@ -438,6 +469,7 @@ function handleEvent(msg: ServerEvent): void {
     case 'error':
       push('error', msg.error)
       pendingCitations = []
+      reasoningText.value = ''
       streamingText.value = ''
       running.value = false
       break
@@ -484,6 +516,11 @@ async function restoreHistory() {
     id: i,
     kind: m.role,
     text: m.content,
+    reasoning: m.reasoning || undefined,
+    reasoningSeconds: m.usage?.thinking_ms
+        ? Math.max(1, Math.round(m.usage.thinking_ms / 1000))
+        : undefined,
+    usage: m.usage || undefined,
   }))
   // ★ 精确判断：有没有正在跑的任务（替换原来"最后一条是不是 user"的启发式）
   running.value = tasks.some((t) => t.status === 'running')
@@ -501,8 +538,13 @@ async function handleSend(): Promise<void> {
   input.value = ''
   running.value = true
   pendingCitations = []          // ★ 新一轮开始，清掉上一轮残留的引用
+  reasoningText.value = ''       // 新一轮的思考过程
+  reasoningOpen.value = true
   try {
-    await submitTask(query, sessionId.value)
+    await submitTask(query, sessionId.value, {
+      deep_think: deepThink.value,
+      force_search: webSearch.value,
+    })
   } catch (e) {
     running.value = false
     push('error', '任务提交失败，请检查后端服务')
@@ -1047,11 +1089,25 @@ onUnmounted(() => {
     border-color: #d1d5db;
     color: #374151;
   }
+
+  /* 选中的开关 hover 时保持蓝色（上面的灰白 hover 特异性更高，会盖掉 .on） */
+  .tool-toggle.on:hover:not(:disabled) {
+    background: #dbeafe;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+  }
 }
 
 .tool-toggle:active:not(:disabled) {
   background: #f3f4f6;
   transform: scale(0.97);
+}
+
+/* 选中态按下去也保持蓝色（同理：提高特异性避免被覆盖） */
+.tool-toggle.on:active:not(:disabled) {
+  background: #bfdbfe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
 }
 
 /* 禁用态用颜色变浅而不是整体 opacity：SVG 描边能均匀变灰，不会糊成一团 */

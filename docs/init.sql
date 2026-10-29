@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content      TEXT NOT NULL DEFAULT '',
     tool_calls   TEXT,                               -- JSON，assistant 中间轮才有
     tool_call_id TEXT,                               -- tool 消息才有
+    reasoning    TEXT,                               -- 思考过程（多轮合并），只落最终回答
+    usage_json   TEXT,                               -- 任务用量汇总 JSON，只落最终回答
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_msg_session ON messages(session_id, id);

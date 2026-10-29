@@ -1,14 +1,22 @@
 import request from './index'
+import type {UsageInfo} from '../types/types'
 
 export interface TaskSubmitResponse {
     task_id: string,
     session_id: string
 }
 
-export async function submitTask(query: string, sessionId: string): Promise<TaskSubmitResponse> {
+export interface TaskOptions {
+    deep_think?: boolean
+    force_search?: boolean
+}
+
+export async function submitTask(query: string, sessionId: string,
+                                 options: TaskOptions = {}): Promise<TaskSubmitResponse> {
     const {data} = await request.post<TaskSubmitResponse>('/task', {
         query,
-        session_id: sessionId
+        session_id: sessionId,
+        ...options,
     })
     return data
 }
@@ -17,6 +25,8 @@ export interface SessionMessage {
     role: 'user' | 'assistant'
     content: string
     created_at: string
+    reasoning?: string | null
+    usage?: UsageInfo | null
 }
 
 export async function fetchMessages(sessionId: string): Promise<SessionMessage[]> {

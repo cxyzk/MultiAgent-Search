@@ -1,4 +1,7 @@
 from datetime import datetime
+
+import json
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +64,8 @@ class SessionService:
     async def list_messages(session_id: str,db:AsyncSession) -> list[dict]:
         """给前端恢复聊天记录：正序、同样只展示文本轮"""
         stmt = (
-            select(Message.role, Message.content, Message.created_at)
+            select(Message.role, Message.content, Message.created_at,
+                   Message.reasoning, Message.usage_json)
             .where(
                 Message.session_id == session_id,
                 Message.role.in_(("user", "assistant")),
@@ -70,7 +74,19 @@ class SessionService:
             .order_by(Message.id.asc())
         )
         rows = (await db.execute(stmt)).all()
-        return [{"role": r, "content": c, "created_at": str(t)} for r, c, t in rows]
+
+        result: list[dict] = []
+        for role, content, created_at, reasoning, usage_json in rows:
+            item = {"role": role, "content": content, "created_at": str(created_at)}
+            if reasoning:
+                item["reasoning"] = reasoning
+            if usage_json:
+                try:
+                    item["usage"] = json.loads(usage_json)
+                except json.JSONDecodeError:
+                    pass   # 坏数据不影响回填
+            result.append(item)
+        return result
 
     @staticmethod
     async def delete_session(session_id: str,db:AsyncSession) -> None:

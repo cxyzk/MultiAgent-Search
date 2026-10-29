@@ -59,6 +59,11 @@ async def summarize_task_usage(task_id: str) -> dict:
                 func.coalesce(func.sum(LlmCall.latency_ms), 0),
             ).where(LlmCall.task_id == task_id)
         )).one()
+        # 只统计"有思考"的调用耗时：前端"已思考（用时 N 秒）"用它，不含工具等待
+        reasoning_latency_ms = (await db.execute(
+            select(func.coalesce(func.sum(LlmCall.latency_ms), 0))
+            .where(LlmCall.task_id == task_id, LlmCall.reasoning_tokens > 0)
+        )).scalar_one()
 
     calls, prompt_tokens, completion_tokens, cache_hit_tokens, latency_ms = row
     return {
@@ -68,4 +73,5 @@ async def summarize_task_usage(task_id: str) -> dict:
         "total_tokens": prompt_tokens + completion_tokens,
         "cache_hit_tokens": cache_hit_tokens,
         "llm_latency_ms": latency_ms,
+        "reasoning_latency_ms": reasoning_latency_ms,
     }

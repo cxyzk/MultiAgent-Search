@@ -62,7 +62,9 @@ WEATHER_AGENT_SCHEMA = {
     },
 }
 
-async def run_main_agent(query: str, on_progress=None, history: list[dict] | None = None,on_token=None,on_message=None) -> str:
+async def run_main_agent(query: str, on_progress=None, history: list[dict] | None = None,
+                         on_token=None, on_message=None, deep_think: bool = False,
+                         on_reasoning=None) -> str:
     now = datetime.now()
     today = f"{now:%Y-%m-%d} " + "周" + "一二三四五六日"[now.weekday()]
     return await run_tool_loop(
@@ -79,6 +81,8 @@ async def run_main_agent(query: str, on_progress=None, history: list[dict] | Non
         history=history,
         on_token=on_token,
         on_message=on_message,
+        deep_think=deep_think,
+        on_reasoning=on_reasoning,
     )
 
 

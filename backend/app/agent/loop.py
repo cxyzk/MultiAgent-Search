@@ -49,22 +49,29 @@ async def run_tool(tool_call,tool_map,tool_semaphore)->tuple[Any, str]:
      return tool_call, await execute_tool(tool_call, tool_map)
 
 
-async def _call_model(messages, tools, on_token, agent_name: str = "agent"):
+async def _call_model(messages, tools, on_token, agent_name: str = "agent",
+                      deep_think: bool = False, on_reasoning=None):
     """调一次 LLM，返回 (content, tool_calls, 放回 messages 用的 assistant 消息)。
 
     on_token 非空时走流式：content 增量实时转发给调用方，
     tool_calls 的增量碎片按 index 分桶拼装。
+    deep_think=True 时带 reasoning_effort="high"：实测 flash 的思考 token 从 ~77 涨到 ~180。
+    on_reasoning 非空时把 reasoning_content（思考过程）单独转发，不和正文混在一起。
     每次调用都会把 token 用量/耗时记到 llm_calls 表（观测失败不影响主流程）。
     """
     started_at = time.perf_counter()
+    extra_body = {"reasoning_effort": "high"} if deep_think else None
 
     if on_token is None:
         resp=await client.chat.completions.create(
             model=settings.llm_model,
             messages=messages,
+            extra_body=extra_body,
             **({"tools": tools, "tool_choice": "auto"} if tools else {}),
         )
         msg = resp.choices[0].message
+        if on_reasoning and getattr(msg, "reasoning_content", None):
+            await on_reasoning(msg.reasoning_content)
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         await record_llm_call(agent_name=agent_name, usage=resp.usage, latency_ms=latency_ms)
         return msg.content, msg.tool_calls, msg
@@ -75,6 +82,7 @@ async def _call_model(messages, tools, on_token, agent_name: str = "agent"):
     stream = await client.chat.completions.create(
         model=settings.llm_model,
         messages=messages,
+        extra_body=extra_body,
         **({"tools": tools, "tool_choice": "auto"} if tools else {}),
         stream=True,
         stream_options={"include_usage": True},   # ★ 让最后一个 chunk 带 usage
@@ -86,6 +94,9 @@ async def _call_model(messages, tools, on_token, agent_name: str = "agent"):
         if not chunk.choices:
             continue  # 某些服务商最后一个 chunk 的 choices 是空的
         delta = chunk.choices[0].delta
+        # 思考过程单独转发（DeepSeek 的 reasoning_content 字段，和正文分开发）
+        if on_reasoning and getattr(delta, "reasoning_content", None):
+            await on_reasoning(delta.reasoning_content)
         if delta.content:
             content_parts.append(delta.content)
             await on_token(delta.content)  # ← 直播：收到就转发
@@ -128,6 +139,8 @@ async def run_tool_loop(
         history: list[dict] | None = None,
         on_token: TokenCallback | None = None,
         on_message: MessageCallback | None = None,   # ★ 新增
+        deep_think: bool = False,                    # 只有主 agent 会传，子 agent 走默认
+        on_reasoning=None,                           # 思考过程（只主 agent 传）
 )->str:
     async def report(payload: dict) -> None:
         if on_progress:
@@ -139,7 +152,8 @@ async def run_tool_loop(
     )
     for round_i in range(MAX_ROUNDS):
         content, tool_calls, assistant_msg = await _call_model(
-            messages, tools, on_token, agent_name=agent_name
+            messages, tools, on_token, agent_name=agent_name,
+            deep_think=deep_think, on_reasoning=on_reasoning,
         )
         messages.append(assistant_msg)  # 必须把 assistant 的 tool_calls 消息加进去
         if on_message:
@@ -186,7 +200,8 @@ async def run_tool_loop(
                 })
 
     # 超过最大轮数：不带 tools 再调一次，强制模型基于已有信息收尾
-    content, _, _ = await _call_model(messages, None, on_token)
+    content, _, _ = await _call_model(messages, None, on_token,
+                                      deep_think=deep_think, on_reasoning=on_reasoning)
     if on_message:
         await on_message({"role": "assistant", "content": content})  # ★
     return content
