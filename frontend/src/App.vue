@@ -108,27 +108,29 @@
       </header>
       <div class="chat-app">
         <main ref="listEl" class="message-list">
-          <div v-if="notice" class="notice">{{ notice }}</div>
-          <ChatBubble v-for="m in messages" :key="m.id" :msg="m"/>
-          <div v-if="reasoningText" class="reasoning">
-            <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
-              思考中…
-              <svg class="reasoning-arrow" :class="{ open: reasoningOpen }" viewBox="0 0 24 24"
-                   width="12" height="12" fill="none" stroke="currentColor"
-                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 6l6 6-6 6"/>
-              </svg>
-            </button>
-            <div v-if="reasoningOpen" class="reasoning-body">{{ reasoningText }}</div>
-          </div>
-          <div v-if="streamingText" class="streaming-row">
-            <div class="streaming-bubble">
-              {{ streamingText }}<span class="cursor">▍</span>
+          <div class="message-inner">
+            <div v-if="notice" class="notice">{{ notice }}</div>
+            <ChatBubble v-for="m in messages" :key="m.id" :msg="m"/>
+            <div v-if="reasoningText" class="reasoning">
+              <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
+                思考中…
+                <svg class="reasoning-arrow" :class="{ open: reasoningOpen }" viewBox="0 0 24 24"
+                     width="12" height="12" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 6l6 6-6 6"/>
+                </svg>
+              </button>
+              <div v-if="reasoningOpen" class="reasoning-body">{{ reasoningCompact }}</div>
             </div>
+            <div v-if="streamingText" class="streaming-row">
+              <div class="streaming-bubble">
+                {{ streamingText }}<span class="cursor">▍</span>
+              </div>
+            </div>
+            <p v-if="messages.length === 0" class="empty-hint">
+              试试问：知识库里关于并发限流的笔记说了什么？
+            </p>
           </div>
-          <p v-if="messages.length === 0" class="empty-hint">
-            试试问：知识库里关于并发限流的笔记说了什么？
-          </p>
         </main>
 
         <form class="input-bar" @submit.prevent="handleSend">
@@ -149,7 +151,7 @@
                   type="button"
                   :class="{ on: deepThink }"
                   title="深度思考：模型花更多 token 推理，回答更深入但更慢"
-                  @click="deepThink = !deepThink"
+                  @click="toggleDeepThink"
               >
                 <ThinkingIcon/>
                 深度思考
@@ -158,8 +160,8 @@
                   class="tool-toggle"
                   type="button"
                   :class="{ on: webSearch }"
-                  title="智能搜索：发送前强制联网检索一次"
-                  @click="webSearch = !webSearch"
+                  title="联网搜索：关闭时绝不联网；开启后由模型自行决定是否搜索"
+                  @click="toggleWebSearch"
               >
                 <SearchIcon/>
                 智能搜索
@@ -203,12 +205,14 @@
 
 
 <script setup lang="ts">
-import {ref, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
+import {ref, computed, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
 import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
 import type {SessionItem, TaskItem} from './api/session'
 import Toast from './components/Toast.vue'
 import {toast} from './composables/useToast'
 import {useChatStream} from './composables/useChatStream'
+import {hapticTap} from './utils/haptic'
+import {compactReasoning} from './utils/text'
 import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
@@ -223,11 +227,23 @@ const running = ref(false)
 // 本轮思考过程（reasoning_content）：流式累积，不落库，刷新后消失
 const reasoningText = ref('')
 const reasoningOpen = ref(true)
+// 展示时才压缩连续空行，原始文本保持不动
+const reasoningCompact = computed(() => compactReasoning(reasoningText.value))
 // 输入框工具开关（刷新后保持）
 const deepThink = ref(localStorage.getItem('tool_deep_think') === '1')
 const webSearch = ref(localStorage.getItem('tool_web_search') === '1')
 watch(deepThink, (v) => localStorage.setItem('tool_deep_think', v ? '1' : '0'))
 watch(webSearch, (v) => localStorage.setItem('tool_web_search', v ? '1' : '0'))
+
+function toggleDeepThink(): void {
+  deepThink.value = !deepThink.value
+  hapticTap()
+}
+
+function toggleWebSearch(): void {
+  webSearch.value = !webSearch.value
+  hapticTap()
+}
 const listEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
 // ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
@@ -534,6 +550,7 @@ async function restoreHistory() {
 async function handleSend(): Promise<void> {
   const query = input.value.trim()
   if (!query || running.value || !connected.value) return
+  hapticTap()                    // 提交成功才震（手机上给一次轻触反馈）
   push('user', query)
   input.value = ''
   running.value = true
@@ -543,7 +560,7 @@ async function handleSend(): Promise<void> {
   try {
     await submitTask(query, sessionId.value, {
       deep_think: deepThink.value,
-      force_search: webSearch.value,
+      web_search: webSearch.value,
     })
   } catch (e) {
     running.value = false
@@ -972,14 +989,21 @@ onUnmounted(() => {
 
 .message-list {
   flex: 1;
-  gap: 10px;
   overflow-y: auto;
-  /* 宽屏时左右 padding 跟上居中列（800px），内容仍居中；
-     窄屏回落到 16px。滚动条在容器右边缘 = 窗口最右 */
-  padding: 16px max(16px, calc((100% - 800px) / 2 + 16px));
+  overflow-x: hidden;
+  min-height: 0; /* ★ */
+  /* 居中交给内层容器：滚动容器保持全宽，滚动条才会贴窗口右侧 */
+}
+
+/* 内容列：800px 居中（margin auto，不依赖 calc，折叠动画/缩放时都稳） */
+.message-inner {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  min-height: 0; /* ★ */
+  gap: 10px;
 }
 
 .notice {
@@ -1072,6 +1096,8 @@ onUnmounted(() => {
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
+  /* 移动端：跳过双击缩放检测 → click 立即触发，避免"松手后延迟变色" */
+  touch-action: manipulation;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
@@ -1083,7 +1109,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-@media (hover: hover) {
+/* 只有真鼠标才应用 hover（触摸设备点一下会把 hover"粘住"，导致和选中色叠成多次变色） */
+@media (hover: hover) and (pointer: fine) {
   .tool-toggle:hover:not(:disabled) {
     background: #f3f4f6;
     border-color: #d1d5db;
@@ -1100,7 +1127,6 @@ onUnmounted(() => {
 
 .tool-toggle:active:not(:disabled) {
   background: #f3f4f6;
-  transform: scale(0.97);
 }
 
 /* 选中态按下去也保持蓝色（同理：提高特异性避免被覆盖） */
@@ -1108,6 +1134,17 @@ onUnmounted(() => {
   background: #bfdbfe;
   border-color: #93c5fd;
   color: #1d4ed8;
+}
+
+/* 触摸设备：按下不改背景（否则会和状态色叠成多次变色），只保留 scale 反馈 */
+@media (hover: none) {
+  .tool-toggle:active:not(:disabled) {
+    background: #fff;
+  }
+
+  .tool-toggle.on:active:not(:disabled) {
+    background: #eff6ff;
+  }
 }
 
 /* 禁用态用颜色变浅而不是整体 opacity：SVG 描边能均匀变灰，不会糊成一团 */
@@ -1315,8 +1352,11 @@ onUnmounted(() => {
     background: #fff;
   }
 
-  .message-list {
+  .message-inner {
     padding: 12px;
+  }
+
+  .message-list {
     /* 关键：只有这一层滚动，且必须能被子项压缩 */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch; /* iOS 惯性滚动 */

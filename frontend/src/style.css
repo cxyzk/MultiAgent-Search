@@ -175,6 +175,9 @@ body {
 /* ===== 思考过程（reasoning_content）：灰字 + 折叠 =====
    流式面板（App）和历史消息（ChatBubble）共用，所以放全局 */
 .reasoning {
+    /* 与 .bubble-assistant 的左内边距（8px）对齐，保证"已思考"和回答文字同一起点 */
+    padding-left: 8px;
+    padding-right: 8px;
 }
 
 .reasoning-toggle {

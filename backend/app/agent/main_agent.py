@@ -64,17 +64,29 @@ WEATHER_AGENT_SCHEMA = {
 
 async def run_main_agent(query: str, on_progress=None, history: list[dict] | None = None,
                          on_token=None, on_message=None, deep_think: bool = False,
-                         on_reasoning=None) -> str:
+                         on_reasoning=None, allow_search: bool = True) -> str:
     now = datetime.now()
     today = f"{now:%Y-%m-%d} " + "周" + "一二三四五六日"[now.weekday()]
+
+    system_prompt = MAIN_AGENT_PROMPT_TEMPLATE.format(today=today)
+    tools = [KB_SEARCH_TOOL_SCHEMA, WEATHER_AGENT_SCHEMA]
+    tool_map = {"kb_search": kb_search, "weather_agent": run_weather_agent}
+
+    if allow_search:
+        tools.append(SEARCH_AGENT_SCHEMA)
+        tool_map["search_agent"] = run_search_agent
+    else:
+        # 关掉「智能搜索」= 真正禁止联网：工具直接不给，避免模型自己决定去搜
+        system_prompt += (
+            "\n\n【系统限制】用户已关闭联网搜索：search_agent 工具不可用。"
+            "不要尝试联网、也不要承诺稍后重试；基于已有知识回答，"
+            "对可能过时的信息如实说明。"
+        )
+
     return await run_tool_loop(
-        system_prompt=MAIN_AGENT_PROMPT_TEMPLATE.format(today=today),
-        tools=[KB_SEARCH_TOOL_SCHEMA, SEARCH_AGENT_SCHEMA, WEATHER_AGENT_SCHEMA],
-        tool_map={
-            "kb_search": kb_search,
-            "search_agent": run_search_agent,     # ← 工具就是子智能体函数
-            "weather_agent": run_weather_agent,
-        },
+        system_prompt=system_prompt,
+        tools=tools,
+        tool_map=tool_map,
         query=query,
         on_progress=on_progress,
         agent_name="main_agent",

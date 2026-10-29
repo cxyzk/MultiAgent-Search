@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from app.service.session_service import session_service
 from app.agent.main_agent import run_main_agent
-from app.agent.search_agent import run_search_agent
 from app.service.sse_service import sse_service
 from app.core.context import current_task
 from app.service.usage_service import summarize_task_usage
@@ -42,22 +41,17 @@ class TaskService:
                 await session_service.ensure_session(req.session_id, db, title=req.query[:60])
                 await session_service.append(req.session_id, db, role="user", content=req.query)
                 await task_service.create_task(task_id, db, req.session_id, req.query)
-            # 智能搜索：先把联网结果拿到手（不依赖模型自觉），再交给主 agent 组织回答
+            # 智能搜索：false = 禁止联网（工具会被移除）；true = 允许，是否调用由模型自行决定
             query = req.query
-            if getattr(req, "force_search", False):
-                summary = await run_search_agent(query, on_progress=on_progress)
-                query = (
-                    f"{query}\n\n"
-                    f"[用户开启了强制联网搜索，以下是刚刚的搜索结果，请据此回答并注明来源]\n"
-                    f"{summary}"
-                )
+            web_search = getattr(req, "web_search", False)
             result = await run_main_agent(query,
                                           on_progress=on_progress,
                                           history=history,
                                           on_token=forward_token,
                                           on_message=on_message,
                                           deep_think=getattr(req, "deep_think", False),
-                                          on_reasoning=forward_reasoning)
+                                          on_reasoning=forward_reasoning,
+                                          allow_search=web_search)
             async with SessionLocal() as db:
                 await task_service.finish_task(task_id, db, "done")
 

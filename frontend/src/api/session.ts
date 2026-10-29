@@ -8,7 +8,7 @@ export interface TaskSubmitResponse {
 
 export interface TaskOptions {
     deep_think?: boolean
-    force_search?: boolean
+    web_search?: boolean
 }
 
 export async function submitTask(query: string, sessionId: string,

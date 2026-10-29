@@ -11,7 +11,7 @@
             <path d="M9 6l6 6-6 6"/>
           </svg>
         </button>
-        <div v-if="reasoningOpen" class="reasoning-body">{{ msg.reasoning }}</div>
+        <div v-if="reasoningOpen" class="reasoning-body">{{ compactReasoning(msg.reasoning) }}</div>
       </div>
       <div
           v-if="msg.kind === 'assistant'"
@@ -50,6 +50,7 @@
 
 <script setup lang="ts">
 import {computed, ref} from 'vue'
+import {compactReasoning} from '../utils/text'
 import {Marked} from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
@@ -68,18 +69,7 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-// ===== 代码块工具栏：语言标签 + 复制 / 下载 =====
-
-// 下载时的文件扩展名（只影响下载文件名，未知语言回落 txt）
-const CODE_EXT: Record<string, string> = {
-  python: 'py', py: 'py',
-  javascript: 'js', js: 'js',
-  typescript: 'ts', ts: 'ts',
-  bash: 'sh', shell: 'sh', sh: 'sh',
-  json: 'json', sql: 'sql', html: 'html', css: 'css',
-  java: 'java', cpp: 'cpp', c: 'c', go: 'go', rust: 'rs',
-  yaml: 'yml', markdown: 'md', md: 'md',
-}
+// ===== 代码块工具栏：语言标签 + 复制 =====
 
 /** 生成"工具栏 + 代码体"的 HTML（由自定义 renderer 调用） */
 function buildCodeBlock(language: string, highlightedHtml: string): string {
@@ -91,7 +81,6 @@ function buildCodeBlock(language: string, highlightedHtml: string): string {
       `<span class="code-lang">${label}</span>` +
       `<span class="code-actions">` +
       `<button type="button" class="code-btn code-copy">复制</button>` +
-      `<button type="button" class="code-btn code-download">下载</button>` +
       `</span>` +
       `</div>` +
       `<pre><code class="hljs language-${label}">${highlightedHtml}</code></pre>` +
@@ -131,18 +120,6 @@ function flashButton(button: HTMLButtonElement, text: string): void {
   }, 1500)
 }
 
-/** 下载代码片段，文件名按语言给扩展名 */
-function downloadCode(code: string, language: string): void {
-  const extension = CODE_EXT[language] ?? 'txt'
-  const blob = new Blob([code], {type: 'text/plain;charset=utf-8'})
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `snippet.${extension}`
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
 /** v-html 渲染的按钮不在 Vue 响应式里 → 事件委托统一处理 */
 async function onContentClick(event: MouseEvent): Promise<void> {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button.code-btn')
@@ -153,13 +130,10 @@ async function onContentClick(event: MouseEvent): Promise<void> {
   if (!codeElement) return
 
   const code = codeElement.textContent ?? ''
-  const language = block?.querySelector('.code-lang')?.textContent?.trim() ?? ''
 
   if (button.classList.contains('code-copy')) {
     const ok = await copyToClipboard(code)
     flashButton(button, ok ? '已复制' : '复制失败')
-  } else if (button.classList.contains('code-download')) {
-    downloadCode(code, language)
   }
 }
 
@@ -378,12 +352,19 @@ const renderedHtml = computed(() =>
 
 .markdown-body :deep(table) {
   border-collapse: collapse;
+  /* 按内容撑开列宽（不被压扁），超出气泡宽度时才横向滚动 */
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .markdown-body :deep(th),
 .markdown-body :deep(td) {
   padding: 4px 10px;
 }
+
 
 /* ===== 知识库引用 ===== */
 .citations {
@@ -494,12 +475,19 @@ const renderedHtml = computed(() =>
     padding: 4px 8px;
   }
 
-  /* 表格窄屏可横向滚动 */
+  /* 表格在窄屏复用基础样式（max-content + nowrap + 横向滚动），无需额外覆盖 */
+
+  /* 移动端：横向滚动条默认隐藏（滑动功能保留，PC 不受影响） */
+  .markdown-body :deep(pre),
   .markdown-body :deep(table) {
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
+    scrollbar-width: none;        /* Firefox */
   }
+
+  .markdown-body :deep(pre)::-webkit-scrollbar,
+  .markdown-body :deep(table)::-webkit-scrollbar {
+    display: none;                /* WebKit / Android Chrome */
+  }
+
 }
 
 /* 用量统计：assistant 回答下方的一行小字

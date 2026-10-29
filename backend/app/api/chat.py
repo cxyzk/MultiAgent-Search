@@ -15,7 +15,7 @@ class TaskRequest(BaseModel):
     query: str
     session_id: str   # 前端先连 WS 用的身份，提交任务时带上
     deep_think: bool = False     # 深度思考：flash 带 reasoning_effort=high（思考 token 约翻倍）
-    force_search: bool = False   # 智能搜索：跳过主 agent 的决策，发送前先强制联网
+    web_search: bool = False     # 联网搜索：false=禁止（工具移除）；true=允许（模型自行决定是否调用）
 
 
 @router.post("/task")
