@@ -1,0 +1,177 @@
+# 检索评测用例
+#
+# 每题标注 gold_docs（正确答案所在的文档标题，即文件名去掉 .md）。
+# type 说明：
+#   positive    问题措辞贴近文档，考"能不能找到"
+#   paraphrase  换一种说法（尽量不含原文关键词），考语义召回
+#   cross       需要跨两个文档才能回答，gold 允许多篇
+#
+# 依赖：eval_data/docs 下的文档已入库（title = 文件名去掉 .md）
+
+- id: tb_capacity
+  question: "令牌桶的容量应该怎么确定"
+  gold_docs: ["01_令牌桶算法"]
+  type: positive
+
+- id: tb_vs_leaky
+  question: "令牌桶和漏桶在突发流量上的处理有什么不同"
+  gold_docs: ["01_令牌桶算法", "02_漏桶算法"]
+  type: cross
+
+- id: fixed_window_spike
+  question: "固定窗口限流为什么会在窗口边界出现两倍流量"
+  gold_docs: ["03_固定窗口与滑动窗口"]
+  type: positive
+
+- id: sliding_log_memory
+  question: "滑动日志限流的内存占用怎么估算"
+  gold_docs: ["04_滑动日志限流"]
+  type: positive
+
+- id: redis_lua_bucket
+  question: "用 Redis 做分布式限流时 Lua 脚本里怎么存令牌"
+  gold_docs: ["05_分布式限流与Redis"]
+  type: positive
+
+- id: threadpool_unbounded
+  question: "线程池用无界队列会有什么后果"
+  gold_docs: ["06_线程池参数与拒绝策略"]
+  type: positive
+
+- id: semaphore_vs_limit
+  question: "信号量控制和限流器控制的到底是什么区别"
+  gold_docs: ["07_信号量与并发控制"]
+  type: positive
+
+- id: circuit_breaker_states
+  question: "熔断器有哪几个状态，怎么从打开恢复到关闭"
+  gold_docs: ["08_限流与熔断降级的区别"]
+  type: positive
+
+- id: nginx_burst
+  question: "Nginx 的 limit_req 里 burst 和 nodelay 分别是什么意思"
+  gold_docs: ["09_Nginx限流配置"]
+  type: positive
+
+- id: gateway_keyresolver
+  question: "Spring Cloud Gateway 限流时按用户维度怎么配置"
+  gold_docs: ["10_网关限流实践"]
+  type: positive
+
+- id: mq_peak_shaving
+  question: "哪些业务适合用消息队列做削峰，哪些不适合"
+  gold_docs: ["11_消息队列削峰"]
+  type: positive
+
+- id: cache_breakdown_lock
+  question: "热点数据过期时用互斥锁重建缓存的具体做法"
+  gold_docs: ["12_缓存穿透击穿雪崩"]
+  type: positive
+
+- id: redis_lock_watchdog
+  question: "Redisson 的看门狗是怎么给锁续期的"
+  gold_docs: ["13_分布式锁实现对比"]
+  type: positive
+
+- id: idempotent_token
+  question: "用 token 防止表单重复提交的流程是什么样的"
+  gold_docs: ["14_幂等设计"]
+  type: positive
+
+- id: retry_jitter
+  question: "重试时为什么要加随机抖动"
+  gold_docs: ["15_接口超时与重试"]
+  type: positive
+
+- id: redis_down_fallback
+  question: "限流依赖的 Redis 挂掉之后有哪些降级策略"
+  gold_docs: ["16_长文档_限流系统设计复盘"]
+  type: positive
+
+- id: pressure_test_knee
+  question: "压测时怎么判断系统已经到了容量拐点"
+  gold_docs: ["17_长文档_高并发压测报告"]
+  type: positive
+
+- id: para_bucket_name
+  question: "有一个桶，按固定速度往里放凭证，请求拿到凭证才能通过，这是什么算法"
+  gold_docs: ["01_令牌桶算法"]
+  type: paraphrase
+
+- id: para_hot_key_expire
+  question: "某个被高频访问的数据突然从缓存里消失了，大量请求同一时刻涌向数据库，这种现象叫什么"
+  gold_docs: ["12_缓存穿透击穿雪崩"]
+  type: paraphrase
+
+- id: para_order_state
+  question: "订单只能从待支付变成已支付，重复提交同一请求不会产生第二条记录，这是什么设计"
+  gold_docs: ["14_幂等设计"]
+  type: paraphrase
+
+- id: para_log_pii
+  question: "线上日志里能不能直接打印用户手机号"
+  gold_docs: ["90_干扰_团队日志规范"]
+  type: positive
+
+- id: para_ci_cache
+  question: "CI 构建镜像时怎么利用缓存减少重复下载依赖"
+  gold_docs: ["91_干扰_CI流水线配置"]
+  type: positive
+
+- id: para_naming_plural
+  question: "数据库表名和接口路径应该用单数还是复数"
+  gold_docs: ["92_干扰_代码命名约定"]
+  type: positive
+
+# ===== 难题（多主题混杂 / 否定 / 易混 / 细节计算 / 多跳 / 干扰）=====
+
+- id: hard_mixed_topics
+  question: "我们支付网关用 Redis 做限流，现在 QPS 上不去，线程池要不要调大？另外令牌桶和漏桶该怎么选"
+  gold_docs: ["05_分布式限流与Redis", "06_线程池参数与拒绝策略", "01_令牌桶算法", "02_漏桶算法"]
+  type: mixed
+
+- id: hard_negation
+  question: "什么情况下不适合用消息队列做削峰，文档里列了哪几条判断标准"
+  gold_docs: ["11_消息队列削峰"]
+  type: negative
+
+- id: hard_confusable_window
+  question: "把 1 秒切成 10 个 100 毫秒的格子，统计最近一秒内通过了多少请求，这是哪种限流做法"
+  gold_docs: ["03_固定窗口与滑动窗口"]
+  type: confusable
+
+- id: hard_detail_calc
+  question: "令牌桶速率配 50 QPS、容量配 100，最坏情况下允许多长时间的突发流量"
+  gold_docs: ["01_令牌桶算法"]
+  type: detail
+
+- id: hard_cross_doc_redis_down
+  question: "限流系统复盘里提到 Redis 主从切换导致全站 503，最后改成什么策略兜底的"
+  gold_docs: ["16_长文档_限流系统设计复盘"]
+  type: multi_hop
+
+- id: hard_paraphrase_deep
+  question: "我在网关上加了一道闸，同一个用户一秒钟最多放 50 个请求进来，超了直接拒，这个配置要写在哪、按什么维度取用户"
+  gold_docs: ["10_网关限流实践"]
+  type: paraphrase
+
+- id: hard_ambiguous_cache
+  question: "缓存里存一个空值防止同一个不存在的 ID 被反复查数据库，这解决的是穿透还是击穿"
+  gold_docs: ["12_缓存穿透击穿雪崩"]
+  type: confusable
+
+- id: hard_multi_hop_pressure
+  question: "压测时 CPU 打到 88% 但 QPS 上不去，最后定位到什么原因、怎么优化的"
+  gold_docs: ["17_长文档_高并发压测报告"]
+  type: multi_hop
+
+- id: hard_numeric_optimization
+  question: "那次压测把单机 QPS 从 1400 提到 2900，具体做了哪几项优化"
+  gold_docs: ["17_长文档_高并发压测报告"]
+  type: detail
+
+- id: hard_interference_log
+  question: "团队规定日志里不能出现完整的手机号和身份证号，这条要求写在哪个文档里"
+  gold_docs: ["90_干扰_团队日志规范"]
+  type: interference
+
