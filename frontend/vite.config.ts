@@ -15,8 +15,10 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
-        // SSE 必须关闭代理缓冲，否则 token 流会被攒着一起吐出
-        ws: false,
+        // SSE 坑：dev 代理会攒着响应头，直到有第一块 body 数据才转发——
+        // 实测直连后端 t+0.59s、经代理 t+15.47s（与首条 keepalive 同刻）。
+        // 解决靠后端 generate() 开头立即 yield ": connected"，不是改这里。
+        // 详见 README「流式推送迁移实录 · 坑 1」。
       },
     },
   },

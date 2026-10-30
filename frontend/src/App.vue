@@ -150,7 +150,7 @@
                   class="tool-toggle"
                   type="button"
                   :class="{ on: deepThink }"
-                  title="深度思考：模型花更多 token 推理，回答更深入但更慢"
+                  title="深度思考：关闭时模型直接回答；开启时先推理再回答（更慢、更费 token）"
                   @click="toggleDeepThink"
               >
                 <ThinkingIcon/>
@@ -212,6 +212,7 @@ import Toast from './components/Toast.vue'
 import {toast} from './composables/useToast'
 import {useChatStream} from './composables/useChatStream'
 import {hapticTap} from './utils/haptic'
+import {getClientId} from './utils/client'
 import {compactReasoning} from './utils/text'
 import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
@@ -561,6 +562,7 @@ async function handleSend(): Promise<void> {
     await submitTask(query, sessionId.value, {
       deep_think: deepThink.value,
       web_search: webSearch.value,
+      client_id: getClientId(),      // 只把流推给当前标签页
     })
   } catch (e) {
     running.value = false

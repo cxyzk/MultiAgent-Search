@@ -6,6 +6,8 @@
  */
 import { onUnmounted, ref } from 'vue'
 
+import { getClientId } from '../utils/client'
+
 import type { ServerEvent } from '../types/types'
 
 export interface ChatStreamOptions {
@@ -27,7 +29,7 @@ export function useChatStream(options: ChatStreamOptions) {
 
   function connect(sessionId: string): void {
     disconnect()                                  // 切换会话时先断开旧连接
-    source = new EventSource(`/api/events/${sessionId}`)
+    source = new EventSource(`/api/events/${sessionId}?client_id=${getClientId()}`)
 
     source.onopen = () => {
       connected.value = true

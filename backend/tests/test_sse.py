@@ -14,15 +14,15 @@ from app.service.sse_service import sse_service
 @pytest.mark.asyncio(loop_scope="session")
 async def test_generate_emits_connected_then_data():
     queue: asyncio.Queue = asyncio.Queue()
-    await sse_service.register("s-unit", queue)
+    await sse_service.register("s-unit", "c-unit", queue)
 
-    gen = sse_service.generate(queue, "s-unit")
+    gen = sse_service.generate(queue, "s-unit", "c-unit")
     # ① 连接建立后立刻吐一行（防代理攒包，见 README 的 vite 代理坑）
     first = await asyncio.wait_for(gen.__anext__(), 2)
     assert first == ": connected\n\n"
 
-    # ② 队列里的推送被格式化成 data: 行
-    await sse_service.push("s-unit", {"type": "result", "content": "ok"})
+    # ② 定向推送：只投给发起任务的那个 client_id
+    await sse_service.push("s-unit", {"type": "result", "content": "ok"}, client_id="c-unit")
     second = await asyncio.wait_for(gen.__anext__(), 2)
     assert second.startswith("data: ")
     assert '"result"' in second

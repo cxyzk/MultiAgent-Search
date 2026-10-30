@@ -14,7 +14,8 @@ router = APIRouter()
 class TaskRequest(BaseModel):
     query: str
     session_id: str   # 前端先连 WS 用的身份，提交任务时带上
-    deep_think: bool = False     # 深度思考：flash 带 reasoning_effort=high（思考 token 约翻倍）
+    client_id: str = ""          # 标签页标识：SSE 只把事件推给这个连接（空则广播）
+    deep_think: bool = False     # 深度思考：false=none（不思考），true=high
     web_search: bool = False     # 联网搜索：false=禁止（工具移除）；true=允许（模型自行决定是否调用）
 
 
@@ -28,15 +29,18 @@ async def create_task(req: TaskRequest):
     # session_id 和 task_id 通过闭包"带进"agent 深处，不用改 run_agent 的签名
     async def on_progress(payload: dict) -> None:
         #这里的payload通过解包再加入这个task_id
-        await sse_service.push(req.session_id, {**payload, "task_id": task_id})
+        await sse_service.push(req.session_id, {**payload, "task_id": task_id},
+                               client_id=req.client_id)
 
     async def on_token(delta: str) -> None:
         # 直播：文本增量立刻推送，不等汇总
-        await sse_service.push(req.session_id, {"type": "token", "task_id": task_id, "delta": delta})
+        await sse_service.push(req.session_id, {"type": "token", "task_id": task_id, "delta": delta},
+                               client_id=req.client_id)
 
     async def on_reasoning(delta: str) -> None:
         # 思考过程单独推（reasoning_content），前端折叠展示，不和正文混在一起
-        await sse_service.push(req.session_id, {"type": "reasoning", "task_id": task_id, "delta": delta})
+        await sse_service.push(req.session_id, {"type": "reasoning", "task_id": task_id, "delta": delta},
+                               client_id=req.client_id)
 
     # ★ 全量轨迹落库钩子：loop 每产生一条消息就调一次
     async def on_message(msg: dict) -> None:
@@ -55,16 +59,23 @@ async def create_task(req: TaskRequest):
 
 
 @router.get("/events/{session_id}")
-async def sse_endpoint(session_id: str):
-    queue: asyncio.Queue = asyncio.Queue()
-    await sse_service.register(session_id, queue)
+async def sse_endpoint(session_id: str, client_id: str = ""):
+    # 有界队列：客户端不再读取（半死连接）时最多积压 200 条，超出丢最旧
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    await sse_service.register(session_id, client_id, queue)
     return StreamingResponse(
-        sse_service.generate(queue, session_id),
+        sse_service.generate(queue, session_id, client_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",   # 将来 nginx 部署时禁缓冲，事件才实时到达
         },
     )
+
+
+@router.get("/debug/sse")
+async def debug_sse():
+    """排查用：当前每个会话注册了哪些 client_id（仅本地开发使用）。"""
+    return {sid: list(clients.keys()) for sid, clients in sse_service.sse_queues.items()}
 
 

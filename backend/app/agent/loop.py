@@ -55,12 +55,15 @@ async def _call_model(messages, tools, on_token, agent_name: str = "agent",
 
     on_token 非空时走流式：content 增量实时转发给调用方，
     tool_calls 的增量碎片按 index 分桶拼装。
-    deep_think=True 时带 reasoning_effort="high"：实测 flash 的思考 token 从 ~77 涨到 ~180。
+    deep_think=True 时 reasoning_effort="high"（思考 token ~77→180），
+    False 时 reasoning_effort="none"（不产出 reasoning_content，省 token 也更快）。
     on_reasoning 非空时把 reasoning_content（思考过程）单独转发，不和正文混在一起。
     每次调用都会把 token 用量/耗时记到 llm_calls 表（观测失败不影响主流程）。
     """
     started_at = time.perf_counter()
-    extra_body = {"reasoning_effort": "high"} if deep_think else None
+    # 思考强度：关闭时不产出 reasoning_content（reasoning_effort=none，实测 completion 16→9），
+    # 开启时用 high（实测思考 token ~77→180）。两者是同一个参数的不同档位，切换成本为零。
+    extra_body = {"reasoning_effort": "high" if deep_think else "none"}
 
     if on_token is None:
         resp=await client.chat.completions.create(
