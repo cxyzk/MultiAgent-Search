@@ -38,11 +38,14 @@ WEATHER_AGENT_SCHEMA = {
 
 async def run_main_agent(query: str, on_progress=None, history: list[dict] | None = None,
                          on_token=None, on_message=None, deep_think: bool = False,
-                         on_reasoning=None, allow_search: bool = True) -> str:
+                         on_reasoning=None, allow_search: bool = True,
+                         kb_titles: list[str] | None = None) -> str:
     now = datetime.now()
     today = f"{now:%Y-%m-%d} " + "周" + "一二三四五六日"[now.weekday()]
 
-    system_prompt = MAIN_AGENT_PROMPT_TEMPLATE.format(today=today)
+    # 知识库主题清单：让模型知道"哪些问题该先查库"，否则通用问题它会凭记忆直接答
+    titles_text = "、".join(kb_titles) if kb_titles else "（暂无文档）"
+    system_prompt = MAIN_AGENT_PROMPT_TEMPLATE.format(today=today, kb_titles=titles_text)
     tools = [KB_SEARCH_TOOL_SCHEMA, WEATHER_AGENT_SCHEMA]
     tool_map = {"kb_search": kb_search, "weather_agent": run_weather_agent}
 

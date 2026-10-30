@@ -65,6 +65,14 @@ class KBService:
 
 
     @staticmethod
+    async def list_titles(db: AsyncSession, limit: int = 50) -> list[str]:
+        """文档标题清单：喂给主 agent 判断"这个问题属不属于知识库的主题"。"""
+        rows = (await db.execute(
+            select(Document.title).order_by(Document.created_at.desc()).limit(limit)
+        )).scalars().all()
+        return list(rows)
+
+    @staticmethod
     async def list_documents(db: AsyncSession) -> list[dict]:
         chunk_count = (
             select(func.count(Chunk.id))

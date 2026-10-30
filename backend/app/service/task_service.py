@@ -2,6 +2,7 @@ from app.db.session import SessionLocal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from app.service.session_service import session_service
+from app.service.kb_service import kb_service
 from app.agent.main_agent import run_main_agent
 from app.service.sse_service import sse_service
 from app.core.context import current_task
@@ -41,6 +42,8 @@ class TaskService:
                 await session_service.ensure_session(req.session_id, db, title=req.query[:60])
                 await session_service.append(req.session_id, db, role="user", content=req.query)
                 await task_service.create_task(task_id, db, req.session_id, req.query)
+                # ③ 知识库主题清单：让模型知道"哪些问题该先查库"
+                kb_titles = await kb_service.list_titles(db)
             # 智能搜索：false = 禁止联网（工具会被移除）；true = 允许，是否调用由模型自行决定
             query = req.query
             web_search = getattr(req, "web_search", False)
@@ -51,7 +54,8 @@ class TaskService:
                                           on_message=on_message,
                                           deep_think=getattr(req, "deep_think", False),
                                           on_reasoning=forward_reasoning,
-                                          allow_search=web_search)
+                                          allow_search=web_search,
+                                          kb_titles=kb_titles)
             async with SessionLocal() as db:
                 await task_service.finish_task(task_id, db, "done")
 
