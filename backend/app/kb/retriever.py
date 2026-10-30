@@ -1,9 +1,10 @@
-"""检索器：可插拔接口 + BM25 实现（纯 Python、零依赖）。
+"""检索器：可插拔接口 + BM25 实现（纯 Python，中文分词用 jieba）。
 
 v2 可加 EmbeddingRetriever（接入第三方 embedding 服务）——接口不变。
 """
 from typing import Protocol, runtime_checkable
 import re,math
+import jieba
 from app.db.models import Chunk, Document
 from app.db.session import SessionLocal
 from sqlalchemy import select
@@ -16,10 +17,17 @@ class Retriever(Protocol):
 
 
 
+_STOPWORDS = frozenset("""
+的 了 是 在 和 与 或 也 就 都 而 及 等 被 把 对 让 给 从 到 为 以 于 之 其 这 那 有 没有
+我们 你们 他们 它们 怎么 如何 什么 为什么 可以 需要 应该 一个 一些 这个 那个 这些 那些
+""".split())
+
+
 def tokenize(text: str) -> list[str]:
-    """中英混合分词（无依赖版）：
+    """中英混合分词：
     - 英文 / 数字：按单词
-    - 中文：2-gram（相邻两字），单字段落直接成 token
+    - 中文：jieba 精确模式，只过滤停用词，**不过滤单字**——"锁""桶"这类单字是关键词，
+      滤掉就召回不到；也不用 cut_for_search，它会额外产出"布式"这类二元碎片。
     """
     tokens: list[str] = []
 
@@ -27,10 +35,8 @@ def tokenize(text: str) -> list[str]:
         seg = m.group()
         if seg[0].isascii():
             tokens.append(seg)
-        elif len(seg) == 1:
-            tokens.append(seg)
         else:
-            tokens.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+            tokens.extend(w for w in jieba.lcut(seg) if w not in _STOPWORDS)
     return tokens
 
 class BM25Retriever:
