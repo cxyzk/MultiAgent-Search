@@ -1,0 +1,62 @@
+[
+  {
+    "case_id": "vague_search_001",
+    "question": "帮我搜索一下最近的热门消息",
+    "passed": true,
+    "latency_s": 16.4,
+    "dispatched": [
+      "search_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "# 最近一周热门消息（2026-10-23 ~ 10-30）\n\n主要为财经与国际时政类，未找到统一的“全网热度榜”，先按板块理一下：\n\n## 财经与市场\n* **美联储10月议息会议维持利率不变**：9月刚加息25个基点，本次按兵不动，市场聚焦美联储主席凯文·沃什对未来政策路径的表态。\n* **波音"
+  },
+  {
+    "case_id": "chitchat_001",
+    "question": "你好，你是什么模型",
+    "passed": true,
+    "latency_s": 2.2,
+    "dispatched": [],
+    "tool_calls": 0,
+    "failures": [],
+    "answer_preview": "你好。\n\n我是这个环境里的**任务编排助手**，本身基于大语言模型，负责三件事：\n\n- 查你的本地知识库（上传过的文档）\n- 需要实时信息时联网搜索\n- 查天气\n\n所以我没有一个固定的“某某版本”可以报给你——具体底层模型的名称和版本由部署方决定，我无法确认，也不适合替你猜。\n\n有文档要问、有实时消"
+  },
+  {
+    "case_id": "compare_weather_001",
+    "question": "对比北京和上海今天的天气",
+    "passed": true,
+    "latency_s": 15.8,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 2,
+    "failures": [],
+    "answer_preview": "## 北京 vs 上海 · 今日天气对比（2026-10-30）\n\n| 项目 | 北京 | 上海 |\n|---|---|---|\n| 天气 | 晴 | 晴 |\n| 气温 | 16.4°C | 19.5°C |\n| 湿度 | 28% | 71% |\n| 风速 | 12.6 km/h（≈3.5 m/s）"
+  },
+  {
+    "case_id": "multi_hop_001",
+    "question": "今天北京适合穿什么衣服出门",
+    "passed": false,
+    "latency_s": 8.7,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [
+      "第1轮回答缺少关键词：['温度']"
+    ],
+    "answer_preview": "北京今天**晴，气温约 16°C，湿度 28%，微风**（约 12.6 km/h），是典型的秋日干爽天气。\n\n**建议这样穿：**\n- **上装**：长袖 T 恤或薄衬衫 + 一件针织开衫/薄卫衣/休闲西装外套（早晚偏凉，中午晒太阳会热，分层最容易调节）\n- **下装**：长裤即可，牛仔裤、休闲裤都"
+  },
+  {
+    "case_id": "multi_turn_coref_001",
+    "question": "北京今天的天气怎么样 → 那上海呢？",
+    "passed": true,
+    "latency_s": 15.1,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 2,
+    "failures": [],
+    "answer_preview": "上海今天（10 月 30 日）天气：\n\n- **天气**：晴\n- **气温**：19.5°C\n- **湿度**：71%\n- **风速**：3.5 km/h\n\n晴但湿度明显偏高，体感比北京闷一些；风力很小，适合户外活动。\n\n*来源：天气查询子智能体*"
+  }
+]

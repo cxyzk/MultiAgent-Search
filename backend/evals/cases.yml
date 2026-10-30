@@ -26,7 +26,8 @@
   expect:
     subagents: ["weather_agent"]
     max_tool_calls: 2                 # 查天气 + 可能的内部调用
-    must_contain: ["温度", "建议"]
+    must_contain: ["建议"]
+    any_contain: ["温度", "气温", "℃"]   # 温度的同义表述都算（"气温约 16°C" 不应被判缺失）
     max_latency_s: 60
 
 - id: multi_turn_coref_001

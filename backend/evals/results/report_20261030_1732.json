@@ -1,0 +1,60 @@
+[
+  {
+    "case_id": "vague_search_001",
+    "question": "帮我搜索一下最近的热门消息",
+    "passed": true,
+    "latency_s": 13.0,
+    "dispatched": [
+      "search_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "# 2026年10月30日国内热点\n\n**1. 党的二十届五中全会闭幕，今日上午举行新闻发布会**\n全会于10月26日至29日在北京举行，审议通过《中共中央关于持之以恒推进全面从严治党若干重大问题的决定》。中共中央10月30日上午10时举行新闻发布会，介绍和解读全会精神。\n\n**2. 中国队首次晋级"
+  },
+  {
+    "case_id": "chitchat_001",
+    "question": "你好，你是什么模型",
+    "passed": true,
+    "latency_s": 1.6,
+    "dispatched": [],
+    "tool_calls": 0,
+    "failures": [],
+    "answer_preview": "你好。我是这个对话里的任务编排智能体，负责理解你的需求、调用知识库/联网搜索/天气等工具，再把结果整理给你。\n\n需要说明的是，我不对外披露具体的底层模型名称和系统配置。有什么想查的，直接说需求就行。"
+  },
+  {
+    "case_id": "compare_weather_001",
+    "question": "对比北京和上海今天的天气",
+    "passed": true,
+    "latency_s": 9.4,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "**北京 vs 上海 · 今日（2026-10-30）天气对比**\n\n| 项目 | 北京 | 上海 |\n|---|---|---|\n| 天气 | 晴 | 晴 |\n| 气温 | 16.4℃ | 19.5℃ |\n| 湿度 | 28% | 71% |\n| 风速 | 12.6 km/h | 3.5 km/h"
+  },
+  {
+    "case_id": "multi_hop_001",
+    "question": "今天北京适合穿什么衣服出门",
+    "passed": true,
+    "latency_s": 9.1,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 1,
+    "failures": [],
+    "answer_preview": "北京今天晴，气温约 **16.4°C**，风约 3 级，湿度只有 **28%**，比较干燥。\n\n**穿衣建议（洋葱式，方便早晚加脱）：**\n- 内层：长袖 T 恤或薄衬衫\n- 外层：薄外套 / 卫衣 / 针织开衫；怕冷或早出晚归可带一件轻羽绒/风衣\n- 下装：长裤（牛仔裤、休闲裤都合适），不用太厚\n"
+  },
+  {
+    "case_id": "multi_turn_coref_001",
+    "question": "北京今天的天气怎么样 → 那上海呢？",
+    "passed": true,
+    "latency_s": 14.9,
+    "dispatched": [
+      "weather_agent"
+    ],
+    "tool_calls": 2,
+    "failures": [],
+    "answer_preview": "上海今天晴，气温 **19.5°C**，湿度 71%，风速 3.5 km/h。比北京暖约 3°C，但湿度明显更高。\n\n*来源：天气查询子智能体*"
+  }
+]
