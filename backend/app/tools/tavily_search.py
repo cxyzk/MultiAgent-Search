@@ -1,32 +1,15 @@
 from tavily import AsyncTavilyClient
 
 from app.core.config import settings
+from app.tools.openai_schema import tool_schema
+from app.tools.schemas import TavilySearchArgs
 
-TAVILY_TOOL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "tavily_search",
-        "description": "联网搜索。查新闻、时事、最近动态时 topic 必须用 news，"
-                       "否则返回的多是常年不过期的聚合页。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "搜索关键词"},
-                "topic": {
-                    "type": "string",
-                    "enum": ["general", "news"],
-                    "description": "general=全网综合搜索；news=新闻索引（带时效性）。"
-                                   "用户问最近/最新/今天的资讯时用 news。",
-                },
-                "days": {
-                    "type": "integer",
-                    "description": "topic=news 时生效：只返回最近 N 天的新闻，默认 7",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-}
+TAVILY_TOOL_SCHEMA = tool_schema(
+    "tavily_search",
+    "联网搜索。查新闻、时事、最近动态时 topic 必须用 news，"
+    "否则返回的多是常年不过期的聚合页。",
+    TavilySearchArgs,
+)
 
 # 惰性单例：复用底层连接池（每次请求新建 client 会反复重建连接）
 _client: AsyncTavilyClient | None = None

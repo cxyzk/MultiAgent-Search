@@ -1,25 +1,16 @@
 import httpx
 
+from app.tools.openai_schema import tool_schema
+from app.tools.schemas import WeatherArgs
+
 GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
-WEATHER_TOOL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_weather",
-        "description": "获取指定城市的当前天气信息。当用户询问某个城市的天气时调用此工具。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "city": {
-                    "type": "string",
-                    "description": "城市名称，例如：北京、上海、哈尔滨",
-                }
-            },
-            "required": ["city"],
-        },
-    },
-}
+WEATHER_TOOL_SCHEMA = tool_schema(
+    "get_weather",
+    "获取指定城市的当前天气信息。当用户询问某个城市的天气时调用此工具。",
+    WeatherArgs,
+)
 
 #这个工具是通过这个城市的经纬度来获取天气的
 async def get_weather(city:str)->dict:

@@ -4,28 +4,17 @@ import asyncio
 from app.core.config import settings
 from app.kb.factory import get_retriever
 from app.kb.query_rewrite import rewrite_query
+from app.tools.openai_schema import tool_schema
+from app.tools.schemas import KbSearchArgs
 
 
-KB_SEARCH_TOOL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "kb_search",
-        "description": "检索本地知识库（用户上传的文档）。"
-                       "问内部资料、已有文档里的内容时优先调用；"
-                       "知识库没命中或问题涉及实时信息，再考虑联网搜索。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "检索用的关键词或短句，只写主体，不要带“帮我查一下”这类话",
-                },
-                "top_k": {"type": "integer", "description": "返回片段数，默认 5"},
-            },
-            "required": ["query"],
-        },
-    },
-}
+KB_SEARCH_TOOL_SCHEMA = tool_schema(
+    "kb_search",
+    "检索本地知识库（用户上传的文档）。"
+    "问内部资料、已有文档里的内容时优先调用；"
+    "知识库没命中或问题涉及实时信息，再考虑联网搜索。",
+    KbSearchArgs,
+)
 
 async def kb_search(query: str, top_k: int = 5) -> dict:
     retriever = get_retriever()
