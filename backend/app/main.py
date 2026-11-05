@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from app.db.session import SessionLocal
 from sqlalchemy import update
 from app.db.models import Task
+from app.kb.rerank import close_client
+from app.core.llm import close_llm_client
 
 
 @asynccontextmanager
@@ -15,6 +17,9 @@ async def lifespan(app: FastAPI):
         )
         await db.commit()
     yield
+    # 进程退出：优雅关闭共享连接池，避免对端等超时 + ResourceWarning
+    await close_client()
+    await close_llm_client()
 
 app=FastAPI(title="MultiAgent-Search",lifespan=lifespan)
 

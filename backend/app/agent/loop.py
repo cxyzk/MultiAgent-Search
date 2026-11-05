@@ -1,5 +1,5 @@
-from openai import AsyncOpenAI
 from app.core.config import settings
+from app.core.llm import get_llm_client
 import json,asyncio
 import logging
 import time
@@ -11,15 +11,6 @@ from app.service.usage_service import record_llm_call
 logger = logging.getLogger(__name__)
 
 MAX_ROUNDS = 8
-
-
-
-
-#初始化客户端
-client = AsyncOpenAI(
-    base_url=settings.llm_base_url,
-    api_key=settings.llm_api_key,
-)
 
 
 #运行注解
@@ -66,7 +57,7 @@ async def _call_model(messages, tools, on_token, agent_name: str = "agent",
     extra_body = {"reasoning_effort": "high" if deep_think else "none"}
 
     if on_token is None:
-        resp=await client.chat.completions.create(
+        resp=await get_llm_client().chat.completions.create(
             model=settings.llm_model,
             messages=messages,
             extra_body=extra_body,
@@ -82,7 +73,7 @@ async def _call_model(messages, tools, on_token, agent_name: str = "agent",
     #工具拼装
     tc_buf: dict[int, dict] = {}  # index -> {"id", "name", "arguments"}
 
-    stream = await client.chat.completions.create(
+    stream = await get_llm_client().chat.completions.create(
         model=settings.llm_model,
         messages=messages,
         extra_body=extra_body,

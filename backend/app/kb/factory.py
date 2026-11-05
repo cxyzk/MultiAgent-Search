@@ -19,7 +19,7 @@ def _base_retriever():
 
 def get_retriever():
     base = _base_retriever()
-    # rerank 走硅基流动，和 embedding 共用同一个 key
-    if settings.rerank_enabled and settings.embedding_api_key:
+    # rerank 用自己的一组 RERANK_* 配置，和 embedding 完全独立
+    if settings.rerank_enabled and settings.rerank_api_key:
         return RerankedRetriever(base)
     return base

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     retriever: str = "bm25"
 
     # Rerank：两阶段检索的第二段（先多召回，再精排）
+    rerank_api_key: str = ""
+    rerank_base_url: str = ""
     rerank_enabled: bool = False
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
 

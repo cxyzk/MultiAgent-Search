@@ -8,13 +8,17 @@ import json
 import logging
 import re
 
-from openai import AsyncOpenAI
+import httpx
 
 from app.core.config import settings
+from app.core.llm import get_llm_client
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncOpenAI | None = None
+# 改写是"锦上添花"，失败就该立刻降级。而 SDK 默认 read 超时 600s + 重试 2 次，
+# 最坏能把 kb_search 卡半小时——所以派生一个短超时、不重试的实例。
+# with_options 复用同一个 httpx client，不会新建连接池。
+_REWRITE_TIMEOUT = httpx.Timeout(10.0, connect=3.0)
 
 REWRITE_PROMPT = """你是检索查询改写器。把用户的问题改写成 1~3 条适合检索的短查询。
 规则：
@@ -23,20 +27,12 @@ REWRITE_PROMPT = """你是检索查询改写器。把用户的问题改写成 1~
 - 不要解释，不要 markdown 代码块"""
 
 
-def _client_instance() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-        )
-    return _client
-
-
 async def rewrite_query(query: str) -> list[str]:
     """返回 1~3 条改写后的查询；任何失败都返回 [原问题]。"""
     try:
-        response = await _client_instance().chat.completions.create(
+        client = get_llm_client().with_options(
+            timeout=_REWRITE_TIMEOUT, max_retries=0)
+        response = await client.chat.completions.create(
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": REWRITE_PROMPT},

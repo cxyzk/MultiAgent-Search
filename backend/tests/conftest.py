@@ -10,8 +10,11 @@ os.environ.setdefault("LLM_BASE_URL", "http://localhost:9/v1")
 os.environ.setdefault("LLM_API_KEY", "test-key")
 os.environ.setdefault("LLM_MODEL", "test-model")
 
-# 3) Rerank：测试不真调 rerank API（慢且消耗额度），固定关掉
+# 3) Rerank：测试不真调 rerank API（慢且消耗额度），固定关掉。
+#    同时清空 key：factory 的开关现在只看 RERANK_API_KEY，不再借道 EMBEDDING_API_KEY，
+#    等于少了一道保险；这里显式补上，避免开关被误改时带着 .env 里的真 key 出网
 os.environ["RERANK_ENABLED"] = "false"
+os.environ["RERANK_API_KEY"] = ""
 
 # 4) Embedding：测试同样不调外部 API（入库会降级为纯 BM25）
 os.environ["EMBEDDING_API_KEY"] = ""
