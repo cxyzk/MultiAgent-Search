@@ -26,35 +26,44 @@
           <span class="kb-btn-icon">📚</span>
           知识库
         </button>
-        <ul
+        <div
             ref="sessionListEl"
-            class="session-list"
+            class="session-scroll"
             @scroll.passive="onSessionListScroll"
         >
-          <li
-              v-for="s in sessions"
-              :key="s.id"
-              class="session-item"
-              :class="{ active: s.id === sessionId }"
-              @click="switchSession(s.id)"
-          >
-            <span class="session-title">{{ s.title || '新会话' }}</span>
-            <button
-                class="more-btn"
-                type="button"
-                aria-label="更多操作"
-                aria-haspopup="menu"
-                :aria-expanded="menu.visible && menu.session?.id === s.id"
-                @click.stop="toggleMenu($event, s)"
-            >
-              <svg class="more-icon" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="5" cy="12" r="2"/>
-                <circle cx="12" cy="12" r="2"/>
-                <circle cx="19" cy="12" r="2"/>
-              </svg>
-            </button>
-          </li>
-        </ul>
+          <div v-for="g in sessionGroups" :key="g.label" class="session-group">
+            <div class="session-group-label">{{ g.label }}</div>
+            <ul class="session-list">
+              <li
+                  v-for="s in g.items"
+                  :key="s.id"
+                  class="session-item"
+                  :class="{ active: s.id === sessionId }"
+                  @click="onSessionClick($event, s.id)"
+                  @touchstart.passive="onItemTouchStart($event, s)"
+                  @touchmove.passive="onItemTouchMove"
+                  @touchend.passive="onItemTouchEnd"
+                  @touchcancel.passive="onItemTouchEnd"
+              >
+                <span class="session-title">{{ s.title || '新会话' }}</span>
+                <button
+                    class="more-btn"
+                    type="button"
+                    aria-label="更多操作"
+                    aria-haspopup="menu"
+                    :aria-expanded="menu.visible && menu.session?.id === s.id"
+                    @click.stop="toggleMenu($event, s)"
+                >
+                  <svg class="more-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="5" cy="12" r="2"/>
+                    <circle cx="12" cy="12" r="2"/>
+                    <circle cx="19" cy="12" r="2"/>
+                  </svg>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <!-- 折叠/抽屉按钮必须在内层之外：内层折叠时 opacity:0 + pointer-events:none，
@@ -110,7 +119,7 @@
         <main ref="listEl" class="message-list">
           <div class="message-inner">
             <div v-if="notice" class="notice">{{ notice }}</div>
-            <ChatBubble v-for="m in messages" :key="m.id" :msg="m"/>
+            <ChatBubble v-for="m in messages" :key="m.id" :msg="m" @preview="onPreview"/>
             <div v-if="reasoningText" class="reasoning">
               <button class="reasoning-toggle" type="button" @click="reasoningOpen = !reasoningOpen">
                 思考中…
@@ -198,6 +207,7 @@
         @cancel="deleteDialog.open = false"
     />
     <KbPanel :open="kbOpen" @close="kbOpen = false"/>
+    <HtmlPreview :open="preview.open" :code="preview.code" @close="preview.open = false"/>
 
   </div>
   <Toast/>
@@ -205,9 +215,9 @@
 
 
 <script setup lang="ts">
-import {ref, computed, watch, nextTick, onMounted, onUnmounted, onBeforeUnmount} from 'vue'
+import {ref, computed, watch, nextTick, onMounted, onUnmounted} from 'vue'
 import {fetchMessages, fetchSessions, fetchTasks, submitTask, deleteSession, renameSession} from './api/session'
-import type {SessionItem, TaskItem} from './api/session'
+import type {SessionItem} from './api/session'
 import Toast from './components/Toast.vue'
 import {toast} from './composables/useToast'
 import {useChatStream} from './composables/useChatStream'
@@ -216,6 +226,7 @@ import {getClientId} from './utils/client'
 import {compactReasoning} from './utils/text'
 import type {ChatMessage, Citation, ServerEvent, UsageInfo} from './types/types'
 import ChatBubble from './components/ChatBubble.vue'
+import HtmlPreview from './components/HtmlPreview.vue'
 import NewChatIcon from './components/NewChatIcon.vue'
 import KbPanel from './components/KbPanel.vue'
 import ThinkingIcon from './components/ThinkingIcon.vue'
@@ -251,6 +262,12 @@ const streamingText = ref('')
 const notice = ref('')
 // ★ 知识库面板开关
 const kbOpen = ref(false)
+// ★ HTML 预览抽屉：哪段代码在跑。code 为空 = 从没打开过
+const preview = ref<{ open: boolean; code: string }>({open: false, code: ''})
+
+function onPreview(code: string): void {
+  preview.value = {open: true, code}
+}
 // ★ 本轮累积的知识库引用，等 result 到达时挂到那条 assistant 消息上
 let pendingCitations: Citation[] = []
 
@@ -277,6 +294,39 @@ watch(sessionId, (id) => localStorage.setItem('session_id', id), {immediate: tru
 // ★ 侧边栏的会话列表
 const sessions = ref<SessionItem[]>([])
 
+/** 会话按时间分组：今天 / 昨天 / 7天内 / 30天内 / 更早按年月（2026-09） */
+const sessionGroups = computed(() => {
+  const now = new Date()
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterday = new Date(dayStart)
+  yesterday.setDate(dayStart.getDate() - 1)
+  const weekAgo = new Date(dayStart)
+  weekAgo.setDate(dayStart.getDate() - 7)
+  const monthAgo = new Date(dayStart)
+  monthAgo.setDate(dayStart.getDate() - 30)
+
+  // 后端给的是 "YYYY-MM-DD HH:mm:ss"，Safari 不认这种写法，补个 T 转 ISO
+  const parse = (v: string): Date => new Date(v.includes('T') ? v : v.replace(' ', 'T'))
+
+  // Map 保持插入顺序 —— sessions 本身已按 updated_at 倒序，分组不会乱
+  const buckets = new Map<string, SessionItem[]>()
+  for (const s of sessions.value) {
+    const t = parse(s.updated_at)
+    let label: string
+    if (Number.isNaN(t.getTime())) label = '更早'
+    else if (t >= dayStart) label = '今天'
+    else if (t >= yesterday) label = '昨天'
+    else if (t >= weekAgo) label = '7天内'
+    else if (t >= monthAgo) label = '30天内'
+    else label = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`
+
+    const arr = buckets.get(label)
+    if (arr) arr.push(s)
+    else buckets.set(label, [s])
+  }
+  return Array.from(buckets, ([label, items]) => ({label, items}))
+})
+
 const menu = ref<{ visible: boolean; x: number; y: number; session: SessionItem | null }>({
   visible: false,
   x: 0,
@@ -287,7 +337,7 @@ const menu = ref<{ visible: boolean; x: number; y: number; session: SessionItem 
 // 菜单 DOM：渲染后量实际尺寸再做位置校正（手机上防止菜单超出屏幕）
 const menuEl = ref<HTMLElement | null>(null)
 
-// 会话列表滚动条：滚动时显现，停下 800ms 后淡出
+// 会话列表滚动条：滚动时显现，停下 800ms 后隐藏（只控制显隐，颜色走全局变量）
 const sessionListEl = ref<HTMLElement | null>(null)
 let sessionListScrollTimer: number | undefined
 
@@ -313,13 +363,9 @@ import PromptDialog from './components/PromptDialog.vue'
 const renameDialog = ref<{ open: boolean; session: SessionItem | null }>({open: false, session: null})
 const deleteDialog = ref<{ open: boolean; session: SessionItem | null }>({open: false, session: null})
 
-async function toggleMenu(event: MouseEvent, session: SessionItem): Promise<void> {
-  if (menu.value.visible && menu.value.session?.id === session.id) {
-    menu.value.visible = false
-    return
-  }
-
-  const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect()
+/** 把菜单定位到某个元素旁边（三点按钮和手机长按共用） */
+async function openMenuAt(anchorEl: HTMLElement, session: SessionItem): Promise<void> {
+  const anchor = anchorEl.getBoundingClientRect()
   const MARGIN = 8   // 距屏幕边缘的最小安全距离
 
   // 先按"按钮下方左对齐"渲染，再测量实际宽高校正（菜单宽高随字体/内容变化，不能写死）
@@ -349,6 +395,68 @@ async function toggleMenu(event: MouseEvent, session: SessionItem): Promise<void
 
   menu.value.x = x
   menu.value.y = y
+}
+
+/** 桌面端：点三点按钮开关菜单 */
+async function toggleMenu(event: MouseEvent, session: SessionItem): Promise<void> {
+  if (menu.value.visible && menu.value.session?.id === session.id) {
+    menu.value.visible = false
+    return
+  }
+  await openMenuAt(event.currentTarget as HTMLElement, session)
+}
+
+// ===== 手机端长按会话：弹出重命名/删除 =====
+const LONG_PRESS_MS = 500      // 按住多久算长按
+const LONG_PRESS_MOVE = 10     // 手指移动超过这个距离就当成在滚动，取消长按
+
+let longPressTimer: number | undefined
+let longPressOrigin = {x: 0, y: 0}
+// 长按已经弹过菜单，紧随其后的 click 要吃掉，否则会顺带切换会话/关掉菜单
+let longPressFired = false
+
+function onItemTouchStart(event: TouchEvent, session: SessionItem): void {
+  if (!isMobile.value) return
+  const touch = event.touches[0]
+  if (!touch) return
+  const el = event.currentTarget as HTMLElement
+
+  longPressOrigin = {x: touch.clientX, y: touch.clientY}
+  longPressFired = false
+  window.clearTimeout(longPressTimer)
+  longPressTimer = window.setTimeout(() => {
+    longPressFired = true
+    hapticTap(30)             // 复用 utils/haptic.ts，iOS 没有 Web 触觉 API 会静默跳过
+    // ★ 用三点按钮做锚点，而不是整个 li —— 点按钮时菜单贴在按钮下方，
+    //   长按如果拿 li 的 rect 会跑到左边去，两处位置就对不上。
+    //   按钮在手机上虽然 opacity:0，但仍在布局里，rect 有效。
+    const anchorEl = el.querySelector<HTMLElement>('.more-btn') ?? el
+    void openMenuAt(anchorEl, session)
+  }, LONG_PRESS_MS)
+}
+
+function onItemTouchMove(event: TouchEvent): void {
+  const touch = event.touches[0]
+  if (!touch) return
+  const dx = Math.abs(touch.clientX - longPressOrigin.x)
+  const dy = Math.abs(touch.clientY - longPressOrigin.y)
+  if (dx > LONG_PRESS_MOVE || dy > LONG_PRESS_MOVE) {
+    window.clearTimeout(longPressTimer)   // 在滚动列表，不是长按
+  }
+}
+
+function onItemTouchEnd(): void {
+  window.clearTimeout(longPressTimer)
+}
+
+function onSessionClick(event: MouseEvent, id: string): void {
+  if (longPressFired) {
+    longPressFired = false
+    // 别让它冒泡到 document —— 那里的 closeMenu 会立刻把刚弹出的菜单关掉
+    event.stopPropagation()
+    return
+  }
+  switchSession(id)
 }
 
 
@@ -424,8 +532,10 @@ function onDrawerMask(): void {
 }
 
 // 移动端选中会话后自动收起抽屉（否则挡住聊天区）
+// 切会话时顺手关掉预览：否则右边还跑着上一个会话的代码，容易看错
 watch(sessionId, () => {
   if (isMobile.value) drawerOpen.value = false
+  preview.value.open = false
 })
 
 
@@ -594,6 +704,8 @@ onUnmounted(() => {
   mql?.removeEventListener('change', syncMobile)
   mql = null
   document.removeEventListener('click', closeMenu)   // ★ 不移除会泄漏，还会响应已卸载的组件
+  window.clearTimeout(sessionListScrollTimer)        // 滚动条自动隐藏的计时器
+  window.clearTimeout(longPressTimer)                // 长按检测的计时器
   // SSE 连接由 useChatStream 内部的 onUnmounted 自动清理
 })
 
@@ -664,14 +776,6 @@ onUnmounted(() => {
   width: 100%;
 }
 
-
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
 /* 折叠按钮 */
 .collapse-btn {
   display: flex;
@@ -691,13 +795,13 @@ onUnmounted(() => {
 @media (hover: hover) {
   .collapse-btn:hover {
     background: #e9ecf1;
-    color: #111827;
+    color: #0f1115;
   }
 }
 
 .collapse-btn:active {
   background: #e9ecf1;
-  color: #111827;
+  color: #0f1115;
 }
 
 /* 侧边栏：完整态 */
@@ -725,6 +829,9 @@ onUnmounted(() => {
    → 标题的 text-overflow 省略号位置全程固定，不会逐帧跳动 */
 .sidebar-inner {
   width: var(--sb-w);
+  /* ★ 整个侧边栏的左右填充：标题、按钮、会话列表共用这一层缩进，
+     滚动条会落在右侧填充区的内边缘 */
+  padding: 0 12px;
   /* ★ 必须撑满 .sidebar 的高度：否则高度=内容高度，
      session-list 的 flex:1 无处可分配，会话一多就撑高 inner 被 overflow:hidden 裁掉 */
   flex: 1;
@@ -760,11 +867,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  /* 右侧留出折叠按钮的绝对定位空间，避免标题被压到按钮底下 */
-  padding: 0 40px 10px 12px;
+  /* 左边不再单独留 12px（.sidebar-inner 已有填充），右边 40px 是给折叠按钮让位 */
+  padding: 0 40px 10px 0;
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: #0f1115;
   white-space: nowrap;
 }
 
@@ -774,7 +881,8 @@ onUnmounted(() => {
   justify-content: center;
   gap: 6px;
   padding: 9px 12px;
-  margin: 8px 13px;
+  /* 左右 margin 归零：缩进统一由 .sidebar-inner 的 padding 提供 */
+  margin: 8px 0;
   border: 0.8px solid #d1d5db;
   border-radius: 100px;
   background: #ffffff;
@@ -804,7 +912,7 @@ onUnmounted(() => {
 /* 知识库入口：比"开启新会话"弱一档，避免两个主按钮抢注意力 */
 .kb-btn {
   margin-top: 0;
-  color: #374151;
+  /* 字号收小一档做层次即可，颜色继承全局 body 的 #0f1115 */
   font-size: 13px;
 }
 
@@ -813,39 +921,53 @@ onUnmounted(() => {
   line-height: 1;
 }
 
+/* 滚动容器：分组之后，滚动职责从 ul 搬到这个外层 */
+.session-scroll {
+  /* 顶部不留白，紧接按钮区。
+     右侧 -12px：抵消 .sidebar-inner 的 padding-right，让容器铺到侧边栏边缘，
+     滚动条才会落在最外侧的填充区里。
+     左侧不动 —— 外层 padding-left 已经提供了缩进 */
+  margin: 0 -12px 0 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1; /* 占满剩余空间，内容多时才滚 */
+  min-height: 0; /* 允许被压扁 → overflow-y 才生效 */
+  /* 滚动条只控制显隐，颜色引用全局变量 --scroll-color */
+  scrollbar-color: transparent transparent;
+}
+
+.session-scroll.scrolling {
+  scrollbar-color: var(--scroll-color) transparent;
+}
+
+/* 分组间隔：对齐参考稿的 Margin 16px + Padding 4px。
+   之前只给了 6px，组与组之间太挤，"昨天""7天内"贴得紧 */
+.session-group + .session-group {
+  margin-top: 16px;
+  padding-top: 4px;
+}
+
+/* 分组标题：sticky 吸顶。当前组的标题钉在顶部，
+   下一组标题滚上来会把它顶走（纯 CSS，不需要 JS 监听滚动位置） */
+.session-group-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* 对齐参考稿：12px 字 / 18px 行高 / 上下 2px padding = 22px 高 */
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #81858c;
+  /* 背景必须不透明，否则下面的会话条目会从标题底下透出来 */
+  background: #f9fafb;
+  user-select: none;
+}
+
+/* 分组内的条目列表：只负责排布，不再承担滚动 */
 .session-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow-x: hidden; /* ← 加这行：禁止横向滚动 */
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1; /* ★ 关键：从"内容多高就多高"改成"占满剩余空间" */
-  min-height: 0; /* ★ 允许被压扁 → overflow-y 才生效 */
-
-  /* 滚动条"用时出现、不用时消失"：宽度沿用全局（不跳），滑块平时透明 */
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-.session-list.scrolling {
-  scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
-}
-
-/* WebKit：滑块平时透明，滚动 / 悬停时显现 */
-.session-list::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border-radius: 999px;
-  border: 3px solid transparent;
-  background-clip: padding-box;
-  transition: background-color 0.25s ease;
-}
-
-.session-list.scrolling::-webkit-scrollbar-thumb,
-.session-list:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(100, 116, 139, 0.5);
 }
 
 /* ★ 替换 .session-item：从"整行省略号"改成 flex 两端布局 */
@@ -853,12 +975,19 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
-  margin: 0px 13px;
+  /* 复刻参考稿的 40px：padding 9 上下 + 行高 22 = 40。
+     不是"18 行高 + 11 padding"——那样文字块占比小，看着反而空 */
+  padding: 9px 6px 9px 10px;
   border-radius: 8px;
   font-size: 14px;
-  color: #374151;
+  /* 行高 22px：和 9px 上下 padding 配起来正好 40px 高（对齐参考稿） */
+  line-height: 22px;
+  /* 文字色不单独指定，继承全局 body 的 #0f1115 */
   cursor: pointer;
+  /* 手机长按用来自定义菜单，要压掉系统默认的"选中文字 / 弹上下文菜单" */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -866,7 +995,8 @@ onUnmounted(() => {
    手机上 :hover 会在点击后"粘住"，造成点完整行一直是灰底 */
 @media (hover: hover) {
   .session-item:hover {
-    background: #f3f4f6;
+    /* 原 #f3f4f6 太浅，鼠标移上去几乎看不出高亮 */
+    background: #e9ebef;
     border-radius: 13px;
   }
 }
@@ -879,7 +1009,8 @@ onUnmounted(() => {
 
 .session-item.active {
   background: #e4edfd;
-  color: #1d4ed8;
+  /* 选中项：蓝字 + 浅蓝底 */
+  color: #3964FE;
   border-radius: 13px;
 }
 
@@ -898,8 +1029,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  /* 按钮 28×28 保证点得到，但行高只有 22，直接放会把整条撑到 46px。
+     上下各 -3px 的负 margin 让它只占 22px 的交叉轴空间，
+     会话项仍是 40px，按钮本身该多大还是多大 */
+  width: 28px;
+  height: 28px;
+  margin: -3px 0;
   border: none;
   border-radius: 50%;
   background: transparent;
@@ -907,6 +1042,15 @@ onUnmounted(() => {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, background 0.15s;
+}
+
+/* 三点图标给定尺寸，不靠 100% 撑满 —— 之前没设，缩到 16px 按钮里
+   被 flex 压成 0，三个点直接消失了 */
+.more-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex-shrink: 0;
 }
 
 /* 只有支持悬停的设备才"平时隐身、悬停出现"。
@@ -917,10 +1061,11 @@ onUnmounted(() => {
   }
 }
 
-/* 触摸设备：三点按钮常驻（降低存在感即可，不能藏） */
+/* 触摸设备：未选中时完全隐藏，只在当前会话上显示（下方 .active 规则会盖成 1）。
+   ★ 代价：手机上要先点一下把会话选中，才能看到并操作三点按钮 */
 @media (hover: none) {
   .more-btn {
-    opacity: 0.55;
+    opacity: 0;
   }
 }
 
@@ -956,7 +1101,7 @@ onUnmounted(() => {
   padding: 7px 10px;
   border-radius: 6px;
   font-size: 13px;
-  color: #374151;
+  color: #0f1115;
   cursor: pointer;
 }
 
@@ -1050,7 +1195,7 @@ onUnmounted(() => {
   "PingFang SC", "Hiragino Sans GB",
   "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   line-height: 1.6;
-  color: #1f2937;
+  color: #0f1115;
   outline: none;
   background: transparent;
   box-sizing: border-box;
@@ -1116,7 +1261,7 @@ onUnmounted(() => {
   .tool-toggle:hover:not(:disabled) {
     background: #f3f4f6;
     border-color: #d1d5db;
-    color: #374151;
+    color: #0f1115;
   }
 
   /* 选中的开关 hover 时保持蓝色（上面的灰白 hover 特异性更高，会盖掉 .on） */
@@ -1246,7 +1391,7 @@ onUnmounted(() => {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #374151;
+  color: #0f1115;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -1334,6 +1479,13 @@ onUnmounted(() => {
   /* 聊天区撑满全宽（侧边栏已脱离文档流） */
   .app-body {
     width: 100%;
+  }
+
+  /* 手机端：滚动容器仍撑到最右（继承桌面的 -12px），overlay 滚动条才会落在
+     最外侧的填充区里；但条目自己收回 12px，否则选中态的蓝底会顶出
+     侧边栏边界、盖到遮罩上 */
+  .session-item {
+    margin-right: 12px;
   }
 
   /* .chat-app 已是 display: contents，无需再限制宽度 */

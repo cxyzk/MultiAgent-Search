@@ -267,7 +267,7 @@ async function onSearch(): Promise<void> {
 .kb-head h3 {
   margin: 0;
   font-size: 16px;
-  color: #111827;
+  /* 颜色继承全局 body 的 #0f1115 */
 }
 
 .kb-close {
@@ -318,10 +318,6 @@ async function onSearch(): Promise<void> {
   font-size: 13px;
   cursor: pointer;
   transition: 0.15s;
-}
-
-.drop-main {
-  color: #374151;
 }
 
 .drop-hint {
@@ -396,7 +392,7 @@ async function onSearch(): Promise<void> {
 .hit-text {
   font-size: 13px;
   line-height: 1.6;
-  color: #374151;
+  /* 颜色继承全局 body 的 #0f1115 */
   white-space: pre-wrap;
 }
 
@@ -444,7 +440,7 @@ async function onSearch(): Promise<void> {
 
 .doc-title {
   font-size: 14px;
-  color: #111827;
+  /* 颜色继承全局 body 的 #0f1115 */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -497,7 +493,7 @@ async function onSearch(): Promise<void> {
 .doc-chunks li {
   font-size: 12px;
   line-height: 1.6;
-  color: #4b5563;
+  /* 颜色继承全局 body 的 #0f1115 */
   padding: 6px 8px;
   margin-bottom: 4px;
   background: #f9fafb;

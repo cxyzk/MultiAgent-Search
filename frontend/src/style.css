@@ -16,7 +16,8 @@ body {
     margin: 0;
     font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     background: #ffffff;
-    color: #1f2937;
+    /* 全局文字色：所有没单独指定颜色的元素都继承这里 */
+    color: #0f1115;
 }
 
 /* ===== 弹窗 ===== */
@@ -42,7 +43,7 @@ body {
 .dlg-title {
     margin: 0 0 10px;
     font-size: 15px;
-    color: #111827;
+    color: #0f1115;
 }
 
 .dlg-msg {
@@ -89,7 +90,7 @@ body {
 
 .btn.ghost {
     background: #f3f4f6;
-    color: #374151;
+    color: #0f1115;
 }
 
 .btn.ghost:hover {
@@ -138,38 +139,20 @@ body {
 }
 
 
-/* ===== 滚动条：全站统一（细胶囊 · 悬浮感）===== */
-/* Chrome / Edge / Safari */
-::-webkit-scrollbar {
-    width: 10px; /* 轨道宽（内缩后视觉只有 4px） */
-    height: 10px;
+/* ===== 滚动条：只接管颜色，形状交给系统 =====
+   桌面（Windows 11）的系统滚动条本身就是圆头细条，自定义伪元素反而会把
+   它覆盖成自己画的，得不偿失 —— 所以这里只改颜色，不碰形状。
+   移动端是 overlay 滚动条，形状由系统绘制（直角），CSS 改不了。 */
+/* ===== 滚动条：颜色全站唯一来源 =====
+   用标准属性 scrollbar-color，宽度/圆角由系统决定（Windows 11 本身就是圆头细条）。
+   代价是 hover 会由浏览器自动压暗，CSS 改不了 —— 试过伪元素方案，
+   视觉宽度要手动补、还会把侧边栏的显隐逻辑一起改乱，不值得。 */
+:root {
+    --scroll-color: rgba(0, 0, 0, 0.08);
 }
 
-::-webkit-scrollbar-track {
-    background: transparent; /* 轨道透明 → 滑块像"悬浮"在内容上 */
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(100, 116, 139, 0.35);
-    border-radius: 999px;
-    border: 3px solid transparent; /* ★ 透明边框 + 背景裁切 = 视觉变细 */
-    background-clip: padding-box;
-    transition: background-color 0.15s; /* 写上无害（部分浏览器不生效） */
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(100, 116, 139, 0.6);
-    border-width: 1px; /* ★ hover 视觉变宽：4px → 8px */
-}
-
-::-webkit-scrollbar-corner {
-    background: transparent; /* 横竖滚动条交汇的小方块，别露白 */
-}
-
-/* Firefox（不支持 webkit 伪元素，用另一套 API） */
 * {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+    scrollbar-color: var(--scroll-color) transparent;
 }
 
 /* ===== 思考过程（reasoning_content）：灰字 + 折叠 =====
