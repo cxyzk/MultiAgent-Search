@@ -190,7 +190,7 @@ const renderedHtml = computed(() =>
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  /* assistant 占满整行（代码块/表格才不被压缩）；72% 只给 user 气泡用
+  /* assistant 占满整行（代码块/表格才不被压缩）；宽度上限只给 user 气泡用
      —— 这是 problem.md 第 12 条记过的坑，别在这里再限制一次 */
   flex: 1;
   min-width: 0;
@@ -199,7 +199,7 @@ const renderedHtml = computed(() =>
 .row-user .bubble-wrap {
   align-items: flex-end;
   flex: 0 1 auto;    /* user 不撑满，按内容收缩 */
-  max-width: 72%;
+  max-width: 90%;    /* 长问题尽量少换行，到 90% 才折 */
 }
 
 /* 步骤/错误是全宽日志，不受气泡宽度限制 */
@@ -237,8 +237,8 @@ const renderedHtml = computed(() =>
 .bubble-user {
   max-width: 100%;
   min-width: 0;
-  background: #edf3fe;
-  color: #0f1115;
+  background: var(--accent-wash);
+  color: var(--text-1);
   border-bottom-right-radius: 4px;
 }
 
@@ -260,7 +260,7 @@ const renderedHtml = computed(() =>
 /* 工具进度：弱视觉的灰色日志字 */
 .bubble-step {
   background: none;
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 13px;
   font-family: Consolas, monospace;
   padding: 2px 4px;
@@ -269,8 +269,8 @@ const renderedHtml = computed(() =>
 
 /* 错误：浅红底 */
 .bubble-error {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--danger-wash);
+  color: var(--danger-text);
   max-width: 100%;
 }
 
@@ -293,7 +293,7 @@ const renderedHtml = computed(() =>
 }
 
 .markdown-body :deep(a) {
-  color: #3b82f6;
+  color: var(--accent-ink);
 }
 
 /* 代码块容器：纯白底 + 细灰边 + 圆角 */
@@ -304,7 +304,7 @@ const renderedHtml = computed(() =>
   margin: 8px 0;
   border-radius: 8px;
   overflow: hidden;            /* 圆角裁切工具栏与代码体 */
-  background: #f6f8fa;
+  background: var(--bg-inset);
 }
 
 .markdown-body :deep(.code-toolbar) {
@@ -315,7 +315,7 @@ const renderedHtml = computed(() =>
   /* 与代码块背景一致（继承 .code-block 的 #f6f8fa），保留为透明即可 */
   background: transparent;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-2);
 }
 
 .markdown-body :deep(.code-lang) {
@@ -331,7 +331,7 @@ const renderedHtml = computed(() =>
 .markdown-body :deep(.code-btn) {
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 12px;
   padding: 3px 8px;
   border-radius: 5px;
@@ -368,16 +368,16 @@ const renderedHtml = computed(() =>
   width: 1px;
   height: 12px;
   margin-top: -6px;
-  background: #e0e4e9;
+  background: var(--border);
   /* 线是装饰，别挡住按钮的点击区域 */
   pointer-events: none;
 }
 .markdown-body :deep(.code-btn:hover) {
-  background: rgba(15, 23, 42, 0.07);
-  color: #0f1115;
+  background: var(--bg-hover-inset);
+  color: var(--text-1);
 }
 .markdown-body :deep(.code-btn.done) {
-  color: #16a34a;
+  color: var(--success-text);
 }
 
 /* 基础态（手机端）：保持横向滚动，行为不变 */
@@ -424,7 +424,7 @@ const renderedHtml = computed(() =>
 
 /* 行内代码：浅灰小块（保留你原来的） */
 .markdown-body :deep(code) {
-  background: #f3f4f6;
+  background: var(--bg-hover);
   padding: 2px 5px;
   border-radius: 4px;
   font-size: 13px;
@@ -461,7 +461,7 @@ const renderedHtml = computed(() =>
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -469,8 +469,8 @@ const renderedHtml = computed(() =>
 }
 
 .cite-toggle:hover {
-  background: #f3f4f6;
-  color: #1d4ed8;
+  background: var(--bg-hover);
+  color: var(--accent-brand);
 }
 
 .cite-arrow {
@@ -495,8 +495,8 @@ const renderedHtml = computed(() =>
   gap: 8px;
   padding: 5px 9px;
   margin-bottom: 4px;
-  background: #f9fafb;
-  border-left: 2px solid #bfdbfe;
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--accent-border);
   border-radius: 0 7px 7px 0;
   font-size: 12px;
   line-height: 1.6;
@@ -512,13 +512,13 @@ const renderedHtml = computed(() =>
 
 .cite-score {
   flex-shrink: 0;
-  color: #9ca3af;
+  color: var(--text-2);
   font-family: Consolas, monospace;
 }
 
 .cite-id {
   flex-shrink: 0;
-  color: #d1d5db;
+  color: var(--text-disabled);
   font-family: Consolas, monospace;
 }
 
@@ -578,6 +578,6 @@ const renderedHtml = computed(() =>
   margin: 4px 4px 0;
   font-size: 11px;
   line-height: 1.5;
-  color: #9ca3af;
+  color: var(--text-2);
 }
 </style>

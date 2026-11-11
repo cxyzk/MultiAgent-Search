@@ -61,8 +61,9 @@ const props = defineProps<{ open: boolean; code: string }>()
 const emit = defineEmits<{ close: [] }>()
 
 const MIN_W = 360
-// 记住用户拖过的宽度（刷新后保持）；Number(null) 是 0，落在 || 兜底上
-const width = ref(Number(localStorage.getItem('pv_width')) || 560)
+const DEFAULT_W = 560
+// 不落 localStorage：每次打开都是默认宽度，拖拽只在本次打开期间有效
+const width = ref(DEFAULT_W)
 
 // 拖动中：iframe 会吃掉 pointermove，必须临时禁掉它的命中
 const dragging = ref(false)
@@ -97,7 +98,6 @@ function onResizeStart(event: PointerEvent): void {
   }
   const onUp = () => {
     dragging.value = false
-    localStorage.setItem('pv_width', String(Math.round(width.value)))
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
   }
@@ -153,10 +153,10 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border-left: 1px solid #e5e7eb;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--border);
   /* 并排两栏，阴影比覆盖式时代轻：只要一点层次，不要"浮起来"的错觉 */
-  box-shadow: -6px 0 24px rgba(15, 23, 42, 0.04);
+  box-shadow: -6px 0 24px var(--shadow-color-1);
   /* ★ 宽度过渡：关掉预览时面板从当前宽度收到 0，
      .app-body（flex:1）会逐帧重算 → 聊天区平滑展开，不再"啪"地弹回。
      打开时反过来，聊天区平滑收缩让位 */
@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
 }
 
 .pv-resizer:hover {
-  background: rgba(59, 130, 246, 0.35);
+  background: var(--accent-grip);
 }
 
 /* ★ 拖动期间禁掉 iframe 命中，否则 pointermove 被它吃掉，拖动会卡死 */
@@ -197,13 +197,19 @@ onBeforeUnmount(() => {
   height: 44px;
   padding: 0 10px 0 14px;
   flex-shrink: 0;
-  border-bottom: 1px solid #eef1f4;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .pv-title {
   font-size: 13px;
   font-weight: 600;
-  color: #0f1115;
+  color: var(--text-1);
+  /* 标题过长时让位给右侧按钮，而不是把按钮挤出面板 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pv-actions {
@@ -223,7 +229,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #6b7280;
+  color: var(--text-2);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
@@ -234,8 +240,8 @@ onBeforeUnmount(() => {
 }
 
 .pv-btn:hover {
-  background: #f3f4f6;
-  color: #0f1115;
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 .pv-frame {

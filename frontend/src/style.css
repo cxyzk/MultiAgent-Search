@@ -1,3 +1,69 @@
+/* ============================================================
+   设计 token — 全站颜色的唯一定义处
+   规则：
+   1. 组件样式里只写 var(--x)，不写色值字面量
+   2. 主题分支只写在本文件；<style scoped> 里的 html[data-theme]
+      会被编译成 html[data-v-xxx]，永远命中不到
+   3. 加深色只需在下方追加 html[data-theme="dark"] 覆盖同名变量
+   ============================================================ */
+:root {
+    /* 表面：层级越靠前越亮 */
+    --bg:                #fff;
+    --bg-sunken:         #f9fafb;                     /* 侧边栏、分组吸顶条 */
+    --bg-raised:         #fff;                        /* 弹窗、菜单、输入框 */
+    --bg-inset:          #f6f8fa;                     /* 代码块 */
+    --bg-hover:          #f3f4f6;
+    --bg-hover-strong:   #e9ebef;                     /* 列表整行 hover */
+    --bg-hover-inset:    rgba(15, 23, 42, 0.07);      /* 代码块内按钮 hover */
+    --bg-active:         #e5e7eb;
+
+    /* 文字 */
+    --text-1:            #0f1115;
+    --text-2:            #6b7280;
+    --text-disabled:     #c7cbd1;
+    --text-group:        #81858C;                     /* 侧栏分组标签（今天/昨天/30 天） */
+
+    /* 边框 */
+    --border-subtle:     #eef1f4;
+    --border:            #e5e7eb;
+    --border-strong:     #d1d5db;
+
+    /* 主色 */
+    --accent:               #3b82f6;
+    --accent-ink:           #3b82f6;                 /* 主色作文字时用，深色下要比 --accent 更亮 */
+    --accent-brand:         #3964FE;                 /* 选中/激活态文字：会话标题、标签、开关 */
+    --accent-wash:          #edf3fe;                 /* 用户气泡、标签选中底 */
+    --accent-wash-faint:    #eff6ff;                 /* 开关激活、拖拽悬停：最淡一档 */
+    --accent-wash-active:   #E4EDFD;                 /* 侧栏当前会话选中底 */
+    --accent-wash-strong:   #dbeafe;                 /* 开关 hover */
+    --accent-border:        #bfdbfe;
+    --accent-border-strong: #93c5fd;
+    --accent-ring:          rgba(59, 130, 246, 0.15);
+    --accent-grip:          rgba(59, 130, 246, 0.35);
+    --on-accent:            #fff;
+
+    /* 状态 */
+    --danger:            #ef4444;
+    --danger-hover:      #dc2626;
+    --danger-text:       #b91c1c;
+    --danger-wash:       #fee2e2;
+    --danger-wash-weak:  #fef2f2;
+    --success:           #22c55e;
+    --success-text:      #16a34a;
+    --warning-wash:      #fef3c7;
+    --warning-text:      #92400e;
+
+    /* 结构 */
+    --mask:            rgba(17, 24, 39, 0.45);
+    --scroll-thumb:    rgba(0, 0, 0, 0.08);
+    --shadow-color-1:  rgba(0, 0, 0, 0.04);
+    --shadow-color-2:  rgba(0, 0, 0, 0.08);
+    --shadow-color-3:  rgba(0, 0, 0, 0.2);
+    --highlight-line:  rgba(255, 255, 255, 0.8);
+    --toast-bg:        #000;
+    --toast-text:      #fff;
+}
+
 * {
     box-sizing: border-box;
     /* 移动端点击时浏览器会在元素上盖一层灰色高亮（tap highlight）。
@@ -15,16 +81,16 @@ html {
 body {
     margin: 0;
     font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    background: #ffffff;
+    background: var(--bg);
     /* 全局文字色：所有没单独指定颜色的元素都继承这里 */
-    color: #0f1115;
+    color: var(--text-1);
 }
 
 /* ===== 弹窗 ===== */
 .dlg-mask {
     position: fixed;
     inset: 0; /* 顶/右/底/左 = 0，铺满视口 */
-    background: rgba(17, 24, 39, 0.45);
+    background: var(--mask);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -35,29 +101,29 @@ body {
     width: 340px;
     max-width: calc(100vw - 32px);   /* 小屏手机不溢出 */
     padding: 20px;
-    background: #fff;
+    background: var(--bg-raised);
     border-radius: 14px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+    box-shadow: 0 20px 50px var(--shadow-color-3);
 }
 
 .dlg-title {
     margin: 0 0 10px;
     font-size: 15px;
-    color: #0f1115;
+    color: var(--text-1);
 }
 
 .dlg-msg {
     margin: 0 0 14px;
     font-size: 13px;
     line-height: 1.6;
-    color: #6b7280;
+    color: var(--text-2);
 }
 
 .dlg-input {
     width: 100%;
     padding: 9px 12px;
     margin: 2px 0 16px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-strong);
     border-radius: 10px;
     font-size: 14px;
     outline: none;
@@ -65,8 +131,8 @@ body {
 }
 
 .dlg-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .dlg-actions {
@@ -89,17 +155,17 @@ body {
 }
 
 .btn.ghost {
-    background: #f3f4f6;
-    color: #0f1115;
+    background: var(--bg-hover);
+    color: var(--text-1);
 }
 
 .btn.ghost:hover {
-    background: #e5e7eb;
+    background: var(--bg-active);
 }
 
 .btn.primary {
-    background: #3b82f6;
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent);
 }
 
 .btn.primary:hover:not(:disabled) {
@@ -107,27 +173,27 @@ body {
 }
 
 .btn.danger {
-    background: #ef4444;
-    color: #fff;
+    background: var(--danger);
+    color: var(--on-accent);
 }
 
 .btn.danger:hover:not(:disabled) {
-    background: #dc2626;
+    background: var(--danger-hover);
 }
 
 /* 触摸设备上 :hover 会"粘住"（第一次点击后一直保持悬停色），
    用 @media (hover: none) 把它还原，避免点完一直是深色 */
 @media (hover: none) {
     .btn.ghost:hover {
-        background: #f3f4f6;
+        background: var(--bg-hover);
     }
 
     .btn.primary:hover:not(:disabled) {
-        background: #3b82f6;
+        background: var(--accent);
     }
 
     .btn.danger:hover:not(:disabled) {
-        background: #ef4444;
+        background: var(--danger);
     }
 }
 
@@ -143,16 +209,12 @@ body {
    桌面（Windows 11）的系统滚动条本身就是圆头细条，自定义伪元素反而会把
    它覆盖成自己画的，得不偿失 —— 所以这里只改颜色，不碰形状。
    移动端是 overlay 滚动条，形状由系统绘制（直角），CSS 改不了。 */
-/* ===== 滚动条：颜色全站唯一来源 =====
+/* ===== 滚动条：颜色统一走 --scroll-thumb =====
    用标准属性 scrollbar-color，宽度/圆角由系统决定（Windows 11 本身就是圆头细条）。
    代价是 hover 会由浏览器自动压暗，CSS 改不了 —— 试过伪元素方案，
    视觉宽度要手动补、还会把侧边栏的显隐逻辑一起改乱，不值得。 */
-:root {
-    --scroll-color: rgba(0, 0, 0, 0.08);
-}
-
 * {
-    scrollbar-color: var(--scroll-color) transparent;
+    scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* ===== 思考过程（reasoning_content）：灰字 + 折叠 =====
@@ -172,12 +234,12 @@ body {
     padding: 0;
     font-size: 14px;
     font-family: inherit;
-    color: rgb(97, 102, 107);
+    color: var(--text-2);
     cursor: pointer;
 }
 
 .reasoning-toggle:hover {
-    color:rgb(15, 17, 21);
+    color:var(--text-1);
 }
 
 .reasoning-arrow {
@@ -192,10 +254,10 @@ body {
 .reasoning-body {
     margin-top: 6px;
     padding: 4px 6px;
-    border-left: 2px solid #e5e7eb;
+    border-left: 2px solid var(--border);
     font-size: 14px;
     line-height: 1.7;
-    color: rgb(97, 102, 107);
+    color: var(--text-2);
     white-space: pre-wrap;
     word-break: break-word;
 }

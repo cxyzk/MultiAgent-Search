@@ -240,7 +240,7 @@ async function onSearch(): Promise<void> {
   position: fixed;
   inset: 0;
   z-index: 1500;
-  background: rgba(17, 24, 39, 0.35);
+  background: var(--mask);
   display: flex;
   justify-content: flex-end;
 }
@@ -249,10 +249,10 @@ async function onSearch(): Promise<void> {
   width: 520px;
   max-width: 92vw;
   height: 100%;
-  background: #fff;
+  background: var(--bg-raised);
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.12);
+  box-shadow: -8px 0 30px var(--shadow-color-2);
   overflow-y: auto;
   padding: 16px 18px 24px;
 }
@@ -274,12 +274,12 @@ async function onSearch(): Promise<void> {
   border: none;
   background: none;
   font-size: 16px;
-  color: #6b7280;
+  color: var(--text-2);
   cursor: pointer;
 }
 
 .kb-section {
-  border-top: 1px solid #f0f1f3;
+  border-top: 1px solid var(--border-subtle);
   padding: 14px 0;
 }
 
@@ -291,18 +291,18 @@ async function onSearch(): Promise<void> {
 
 .kb-tabs button {
   padding: 5px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-raised);
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-2);
   cursor: pointer;
 }
 
 .kb-tabs button.on {
-  background: #edf3fe;
-  border-color: #bfdbfe;
-  color: #1d4ed8;
+  background: var(--accent-wash);
+  border-color: var(--accent-border);
+  color: var(--accent-brand);
 }
 
 .kb-drop {
@@ -312,9 +312,9 @@ async function onSearch(): Promise<void> {
   justify-content: center;
   gap: 4px;
   height: 92px;
-  border: 1.5px dashed #d1d5db;
+  border: 1.5px dashed var(--border-strong);
   border-radius: 12px;
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 13px;
   cursor: pointer;
   transition: 0.15s;
@@ -322,13 +322,13 @@ async function onSearch(): Promise<void> {
 
 .drop-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-2);
 }
 
 .kb-drop:hover {
-  border-color: #3b82f6;
-  color: #1d4ed8;
-  background: #f8fbff;
+  border-color: var(--accent);
+  color: var(--accent-brand);
+  background: var(--accent-wash-faint);
 }
 
 .kb-drop.busy {
@@ -340,7 +340,7 @@ async function onSearch(): Promise<void> {
   width: 100%;
   padding: 8px 12px;
   margin-bottom: 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   font-size: 13px;
   font-family: inherit;
@@ -348,7 +348,7 @@ async function onSearch(): Promise<void> {
 }
 
 .kb-input:focus, .kb-textarea:focus {
-  border-color: #3b82f6;
+  border-color: var(--accent);
 }
 
 .kb-textarea {
@@ -358,7 +358,7 @@ async function onSearch(): Promise<void> {
 .kb-error {
   margin: 6px 0 0;
   font-size: 13px;
-  color: #b91c1c;
+  color: var(--danger-text);
 }
 
 .kb-search {
@@ -379,13 +379,13 @@ async function onSearch(): Promise<void> {
 .kb-hits li {
   padding: 8px 10px;
   margin-bottom: 6px;
-  background: #f9fafb;
+  background: var(--bg-sunken);
   border-radius: 8px;
 }
 
 .hit-meta {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-2);
   margin-bottom: 3px;
 }
 
@@ -399,7 +399,7 @@ async function onSearch(): Promise<void> {
 .kb-empty {
   margin: 10px 0 0;
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--text-2);
 }
 
 .kb-list-head {
@@ -407,7 +407,7 @@ async function onSearch(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-2);
 }
 
 .kb-docs {
@@ -429,7 +429,7 @@ async function onSearch(): Promise<void> {
 }
 
 .doc-row:hover {
-  background: #f6f8fa;
+  background: var(--bg-inset);
 }
 
 .doc-main {
@@ -448,7 +448,7 @@ async function onSearch(): Promise<void> {
 
 .doc-meta {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-2);
   margin-top: 2px;
 }
 
@@ -457,8 +457,8 @@ async function onSearch(): Promise<void> {
   padding: 0 5px;
   margin-right: 4px;
   border-radius: 4px;
-  background: #eef2f7;
-  color: #6b7280;
+  background: var(--bg-hover);
+  color: var(--text-2);
   font-size: 11px;
   line-height: 16px;
   vertical-align: 1px;
@@ -474,14 +474,14 @@ async function onSearch(): Promise<void> {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #9ca3af;
+  color: var(--text-2);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .doc-del:hover {
-  background: #fee2e2;
-  color: #ef4444;
+  background: var(--danger-wash);
+  color: var(--danger);
 }
 
 .doc-chunks {
@@ -496,13 +496,13 @@ async function onSearch(): Promise<void> {
   /* 颜色继承全局 body 的 #0f1115 */
   padding: 6px 8px;
   margin-bottom: 4px;
-  background: #f9fafb;
+  background: var(--bg-sunken);
   border-radius: 7px;
   white-space: pre-wrap;
 }
 
 .seq {
-  color: #9ca3af;
+  color: var(--text-2);
   margin-right: 6px;
   font-family: Consolas, monospace;
 }

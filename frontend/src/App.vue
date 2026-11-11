@@ -117,7 +117,7 @@
       </header>
       <div class="chat-app">
         <main ref="listEl" class="message-list">
-          <div class="message-inner">
+          <div ref="innerEl" class="message-inner">
             <div v-if="notice" class="notice">{{ notice }}</div>
             <ChatBubble v-for="m in messages" :key="m.id" :msg="m" @preview="onPreview"/>
             <div v-if="reasoningText" class="reasoning">
@@ -257,6 +257,7 @@ function toggleWebSearch(): void {
   hapticTap()
 }
 const listEl = ref<HTMLElement | null>(null)
+const innerEl = ref<HTMLElement | null>(null)
 const streamingText = ref('')
 // ★ 新增：中断提示（用 ref 而不是 push 消息——重连时幂等，不会累积）
 const notice = ref('')
@@ -630,15 +631,26 @@ function createSession(): void {
 function switchSession(id: string): void {
   if (id === sessionId.value) return
   sessionId.value = id
+  // 立刻清掉上一个会话的界面状态。否则在 restoreHistory 返回之前，
+  // 旧会话的消息还挂在屏幕上，看起来像"切不过去"。
+  messages.value = []
+  streamingText.value = ''
+  reasoningText.value = ''
+  notice.value = ''
+  pendingCitations = []
+  running.value = false
   connect(sessionId.value)               // connect 内部会先断开旧连接
 }
 
 async function restoreHistory() {
+  const target = sessionId.value        // 拍下本次请求对应的会话
   // 历史和任务状态一起查
   const [data, tasks] = await Promise.all([
-    fetchMessages(sessionId.value),
-    fetchTasks(sessionId.value),
+    fetchMessages(target),
+    fetchTasks(target),
   ])
+  // 期间又切了会话 → 这次结果作废，否则会用旧会话的内容覆盖新会话
+  if (target !== sessionId.value) return
   messages.value = data.map((m, i) => ({
     id: i,
     kind: m.role,
@@ -655,6 +667,10 @@ async function restoreHistory() {
   const latest = tasks[0]
   streamingText.value = ''
   notice.value = latest?.status === 'interrupted' ? '上次的任务被中断了（服务重启），可以重新提问' : ''
+  // messages 被整体替换、高度已变，重新贴底
+  stickToBottom = true
+  await nextTick()
+  scrollToBottom()
 }
 
 // 前端点击发送
@@ -662,6 +678,7 @@ async function handleSend(): Promise<void> {
   const query = input.value.trim()
   if (!query || running.value || !connected.value) return
   hapticTap()                    // 提交成功才震（手机上给一次轻触反馈）
+  stickToBottom = true           // 自己发的消息，一定贴底
   push('user', query)
   input.value = ''
   running.value = true
@@ -680,16 +697,36 @@ async function handleSend(): Promise<void> {
   }
 }
 
-// 新消息自动滚到底
-watch(
-    () => messages.value.length,
-    async () => {
-      await nextTick()
-      listEl.value?.scrollTo({top: listEl.value.scrollHeight, behavior: 'auto'})
-    },
-)
+// ===== 自动滚到底 =====
+// 只监听 messages.length 不够：流式输出时变长的是 streamingText，
+// 而 messages 要等 result 事件才 push，条数从头到尾不变 → 打字期间一次都不会滚。
+// 改为观察内容容器的实际高度，高度一变就贴底：
+// 覆盖流式追加、图片加载、代码块渲染等全部情况，且每帧最多触发一次。
+let stickToBottom = true            // 用户是否贴着底部
+let ro: ResizeObserver | null = null
+
+// 距底部 80px 以内算贴底；超出就当作在翻历史，不再强行拉回
+function updateStick(): void {
+  const el = listEl.value
+  if (!el) return
+  stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 80
+}
+
+function scrollToBottom(): void {
+  const el = listEl.value
+  if (el) el.scrollTop = el.scrollHeight
+}
 
 onMounted(() => {
+  // 内容高度一变就贴底
+  if (innerEl.value) {
+    ro = new ResizeObserver(() => {
+      if (stickToBottom) scrollToBottom()
+    })
+    ro.observe(innerEl.value)
+  }
+  listEl.value?.addEventListener('scroll', updateStick, {passive: true})
+
   // 移动端断点：768px 以下走抽屉模式
   mql = window.matchMedia('(max-width: 768px)')
   syncMobile(mql)
@@ -701,6 +738,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  ro?.disconnect()                                   // 停止观察内容高度
+  ro = null
+  listEl.value?.removeEventListener('scroll', updateStick)
   mql?.removeEventListener('change', syncMobile)
   mql = null
   document.removeEventListener('click', closeMenu)   // ★ 不移除会泄漏，还会响应已卸载的组件
@@ -734,7 +774,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0px 16px;
-  background: #fff;
+  background: var(--bg);
   flex-shrink: 0; /* 不被压缩 */
   width: 100%;
   max-width: 800px;
@@ -746,7 +786,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-2);
 }
 
 .status-dot {
@@ -756,11 +796,11 @@ onUnmounted(() => {
 }
 
 .status-dot.on {
-  background: #22c55e;
+  background: var(--success);
 }
 
 .status-dot.off {
-  background: #9ca3af;
+  background: var(--text-2);
 }
 
 .session-id {
@@ -772,8 +812,13 @@ onUnmounted(() => {
   display: flex;
 
   flex-direction: column;
-  min-height: 0; /* 允许内部滚动 */
+  min-height: 0; /* 允许内部纵向压缩 */
+  /* ★ 必须写：flex 子项默认 min-width:auto，会被消息里的代码块/表格
+     撑出一个很大的"最小宽度"，于是拒绝收缩，把右侧 HTML 预览面板
+     顶出 .app-shell 边界，被 overflow:hidden 裁掉（表现为标题栏按钮消失） */
+  min-width: 0;
   width: 100%;
+  overflow: hidden; /* 内容在内部自己滚，不要越界去盖住预览面板 */
 }
 
 /* 折叠按钮 */
@@ -787,21 +832,21 @@ onUnmounted(() => {
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #6b7280;
+  color: var(--text-2);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 @media (hover: hover) {
   .collapse-btn:hover {
-    background: #e9ecf1;
-    color: #0f1115;
+    background: var(--bg-hover-strong);
+    color: var(--text-1);
   }
 }
 
 .collapse-btn:active {
-  background: #e9ecf1;
-  color: #0f1115;
+  background: var(--bg-hover-strong);
+  color: var(--text-1);
 }
 
 /* 侧边栏：完整态 */
@@ -813,8 +858,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   padding: 14px 0;
-  background: rgb(249, 250, 251);
-  border-right: 0.8px solid rgb(0, 0, 0, 0.04);
+  background: var(--bg-sunken);
+  border-right: 0.8px solid var(--border-subtle);
   min-height: 0;
   overflow: hidden; /* 折叠时裁掉内层，而不是让内容重排 */
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
@@ -871,7 +916,7 @@ onUnmounted(() => {
   padding: 0 40px 10px 0;
   font-size: 15px;
   font-weight: 700;
-  color: #0f1115;
+  color: var(--text-1);
   white-space: nowrap;
 }
 
@@ -883,18 +928,18 @@ onUnmounted(() => {
   padding: 9px 12px;
   /* 左右 margin 归零：缩进统一由 .sidebar-inner 的 padding 提供 */
   margin: 8px 0;
-  border: 0.8px solid #d1d5db;
+  border: 0.8px solid var(--border-strong);
   border-radius: 100px;
-  background: #ffffff;
-  color: #0f1115;
+  background: var(--bg-raised);
+  color: var(--text-1);
   font-size: 14px;
   cursor: pointer;
 
   flex-shrink: 0; /* 防止被文字压扁 */
 
   /* 常态：黑色微阴影 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8),
-  0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: inset 0 1px 0 var(--highlight-line),
+  0 1px 2px var(--shadow-color-1);
 
   transition: border-color 0.2s ease,
   background-color 0.2s ease,
@@ -904,8 +949,8 @@ onUnmounted(() => {
 
 .new-btn:hover {
   /* 改成黑色系阴影 */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9),
-  0 4px 8px rgba(0, 0, 0, 0.08), /* 近距 */ 0 8px 16px rgba(0, 0, 0, 0.06); /* 远距 */
+  box-shadow: inset 0 1px 0 var(--highlight-line),
+  0 4px 8px var(--shadow-color-2), /* 近距 */ 0 8px 16px var(--shadow-color-2); /* 远距 */
   transform: translateY(-1px);
 }
 
@@ -932,12 +977,12 @@ onUnmounted(() => {
   overflow-y: auto;
   flex: 1; /* 占满剩余空间，内容多时才滚 */
   min-height: 0; /* 允许被压扁 → overflow-y 才生效 */
-  /* 滚动条只控制显隐，颜色引用全局变量 --scroll-color */
+  /* 滚动条只控制显隐，颜色引用全局变量 --scroll-thumb */
   scrollbar-color: transparent transparent;
 }
 
 .session-scroll.scrolling {
-  scrollbar-color: var(--scroll-color) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* 分组间隔：对齐参考稿的 Margin 16px + Padding 4px。
@@ -957,9 +1002,10 @@ onUnmounted(() => {
   padding: 2px 10px;
   font-size: 12px;
   line-height: 18px;
-  color: #81858c;
+  font-weight: 500;
+  color: var(--text-group);
   /* 背景必须不透明，否则下面的会话条目会从标题底下透出来 */
-  background: #f9fafb;
+  background: var(--bg-sunken);
   user-select: none;
 }
 
@@ -996,21 +1042,21 @@ onUnmounted(() => {
 @media (hover: hover) {
   .session-item:hover {
     /* 原 #f3f4f6 太浅，鼠标移上去几乎看不出高亮 */
-    background: #e9ebef;
+    background: var(--bg-hover-strong);
     border-radius: 13px;
   }
 }
 
 /* 触摸/鼠标按下时的即时反馈，替代浏览器默认的 tap highlight */
 .session-item:active {
-  background: #e5e7eb;
+  background: var(--bg-active);
   border-radius: 13px;
 }
 
 .session-item.active {
-  background: #e4edfd;
+  background: var(--accent-wash-active);
   /* 选中项：蓝字 + 浅蓝底 */
-  color: #3964FE;
+  color: var(--accent-brand);
   border-radius: 13px;
 }
 
@@ -1038,7 +1084,7 @@ onUnmounted(() => {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #64748b;
+  color: var(--text-2);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, background 0.15s;
@@ -1074,14 +1120,14 @@ onUnmounted(() => {
 }
 
 .more-btn:active {
-  background: #e5e7eb;
-  color: #3b82f6;
+  background: var(--bg-active);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) {
   .more-btn:hover {
-    background: #e5e7eb;
-    color: #3b82f6;
+    background: var(--bg-active);
+    color: var(--accent-ink);
   }
 }
 
@@ -1090,10 +1136,10 @@ onUnmounted(() => {
   position: fixed;
   min-width: 120px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 24px var(--shadow-color-2);
   z-index: 1000;
 }
 
@@ -1101,24 +1147,24 @@ onUnmounted(() => {
   padding: 7px 10px;
   border-radius: 6px;
   font-size: 13px;
-  color: #0f1115;
+  color: var(--text-1);
   cursor: pointer;
 }
 
 .menu-item:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .menu-item.danger {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .menu-item.danger:hover {
-  background: #fef2f2;
+  background: var(--danger-wash-weak);
 }
 
 .menu-item.disabled {
-  color: #d1d5db;
+  color: var(--text-disabled);
   cursor: not-allowed;
 }
 
@@ -1157,15 +1203,15 @@ onUnmounted(() => {
   margin: 0 20px 8px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-wash);
+  color: var(--warning-text);
   font-size: 13px;
 }
 
 
 .empty-hint {
   margin: auto;
-  color: #9ca3af;
+  color: var(--text-2);
   font-size: 14px;
 }
 
@@ -1177,8 +1223,8 @@ onUnmounted(() => {
   width: calc(100% - 32px);
   max-width: 768px;
   margin: 0 auto 20px;
-  background: #fff;
-  border: 1px solid #d1d5db;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
   border-radius: 16px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -1195,7 +1241,7 @@ onUnmounted(() => {
   "PingFang SC", "Hiragino Sans GB",
   "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   line-height: 1.6;
-  color: #0f1115;
+  color: var(--text-1);
   outline: none;
   background: transparent;
   box-sizing: border-box;
@@ -1204,11 +1250,11 @@ onUnmounted(() => {
 }
 
 .chat-input::placeholder {
-  color: #9ca3af;
+  color: var(--text-2);
 }
 
 .chat-input:disabled {
-  background: #f9fafb;
+  background: var(--bg-sunken);
   cursor: not-allowed;
 }
 
@@ -1235,11 +1281,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 5px;
   padding: 5px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 100px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 12px;
+  background: var(--bg-raised);
+  color: var(--text-1);
+  font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
@@ -1259,54 +1305,50 @@ onUnmounted(() => {
 /* 只有真鼠标才应用 hover（触摸设备点一下会把 hover"粘住"，导致和选中色叠成多次变色） */
 @media (hover: hover) and (pointer: fine) {
   .tool-toggle:hover:not(:disabled) {
-    background: #f3f4f6;
-    border-color: #d1d5db;
-    color: #0f1115;
+    background: var(--bg-hover);
   }
 
   /* 选中的开关 hover 时保持蓝色（上面的灰白 hover 特异性更高，会盖掉 .on） */
   .tool-toggle.on:hover:not(:disabled) {
-    background: #dbeafe;
-    border-color: #93c5fd;
-    color: #1d4ed8;
+    background: var(--accent-wash-strong);
   }
 }
 
 .tool-toggle:active:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 /* 选中态按下去也保持蓝色（同理：提高特异性避免被覆盖） */
 .tool-toggle.on:active:not(:disabled) {
-  background: #bfdbfe;
-  border-color: #93c5fd;
-  color: #1d4ed8;
+  background: var(--accent-border);
+  border-color: var(--accent-border-strong);
+  color: var(--accent-brand);
 }
 
 /* 触摸设备：按下不改背景（否则会和状态色叠成多次变色），只保留 scale 反馈 */
 @media (hover: none) {
   .tool-toggle:active:not(:disabled) {
-    background: #fff;
+    background: var(--bg-raised);
   }
 
   .tool-toggle.on:active:not(:disabled) {
-    background: #eff6ff;
+    background: var(--accent-wash);
   }
 }
 
 /* 禁用态用颜色变浅而不是整体 opacity：SVG 描边能均匀变灰，不会糊成一团 */
 .tool-toggle:disabled {
-  color: #c7cbd1;
-  border-color: #eceef1;
-  background: #fcfcfd;
+  color: var(--text-disabled);
+  border-color: var(--border-subtle);
+  background: var(--bg-raised);
   cursor: not-allowed;
 }
 
-/* 激活态：接上真实开关后加 .on 即可 */
+/* 激活态：底色与用户气泡（.bubble-user）统一为 --accent-wash */
 .tool-toggle.on {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #2563eb;
+  background: var(--accent-wash);
+  border-color: var(--accent-border);
+  color: var(--accent-brand);
 }
 
 .send-btn {
@@ -1314,8 +1356,8 @@ onUnmounted(() => {
   padding: 7px 18px;
   border: none;
   border-radius: 11px;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
@@ -1334,7 +1376,7 @@ onUnmounted(() => {
 }
 
 .send-btn:disabled {
-  background: #bfdbfe;
+  background: var(--accent-border);
   cursor: not-allowed;
 }
 
@@ -1362,7 +1404,7 @@ onUnmounted(() => {
 
 .cursor {
   display: inline-block;
-  color: #3b82f6;
+  color: var(--accent-ink);
   animation: blink 1s steps(1) infinite;
 }
 
@@ -1391,19 +1433,19 @@ onUnmounted(() => {
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #0f1115;
+  color: var(--text-1);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 @media (hover: hover) {
   .hamburger:hover {
-    background: #f3f4f6;
+    background: var(--bg-hover);
   }
 }
 
 .hamburger:active {
-  background: #e5e7eb;
+  background: var(--bg-active);
 }
 
 .hamburger svg {
@@ -1416,7 +1458,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(17, 24, 39, 0.4);
+  background: var(--mask);
   animation: mask-in 0.18s ease;
 }
 
@@ -1441,7 +1483,7 @@ onUnmounted(() => {
     max-width: 300px;
     transform: translateX(-100%);
     transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.12);
+    box-shadow: 2px 0 16px var(--shadow-color-2);
     border-right: none;
     padding-top: 12px;
   }
@@ -1503,7 +1545,7 @@ onUnmounted(() => {
     /* 刘海屏安全区：避免标题被状态栏遮住 */
     padding-top: env(safe-area-inset-top, 0px);
     height: calc(52px + env(safe-area-inset-top, 0px));
-    background: #fff;
+    background: var(--bg);
   }
 
   .message-inner {

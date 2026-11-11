@@ -54,6 +54,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 
 .dlg-warn {
   flex-shrink: 0;
-  color: #dc2626;
+  color: var(--danger-hover);
 }
 </style>

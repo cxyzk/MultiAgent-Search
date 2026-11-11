@@ -37,15 +37,15 @@ import { toast } from '../composables/useToast'
   padding: 9px 14px;
   border-radius: 10px;
   font-size: 13px;
-  color: #fff;
-  background: #000;                    /* 纯黑 */
+  color: var(--toast-text);
+  background: var(--toast-bg);                    /* 纯黑 */
   border-left: 3px solid transparent;  /* 预留色条位置，成功/失败时上色 */
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 8px 24px var(--shadow-color-3);
 }
 
 
 .toast-error {
-  border-left-color: #ef4444;
+  border-left-color: var(--danger);
 }
 
 /* 出现 / 消失的过渡 */
